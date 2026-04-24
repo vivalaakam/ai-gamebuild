@@ -10,7 +10,7 @@ mod storage;
 use input::RawInput;
 use model::Project;
 use renderer::FrameView;
-use runtime::{Runtime, SaveResult, ValidationResult};
+use runtime::{Runtime, SaveResult, ValidationResult, ProjectInfo};
 use serde_json::Value;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -135,6 +135,52 @@ fn save_project(state: tauri::State<'_, RuntimeHandle>) -> Result<SaveResult, St
     state.runtime.lock().expect("runtime state poisoned").save()
 }
 
+#[tauri::command]
+fn list_projects(state: tauri::State<'_, RuntimeHandle>) -> Result<Vec<ProjectInfo>, String> {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .list_projects()
+}
+
+#[tauri::command]
+fn switch_project(
+    state: tauri::State<'_, RuntimeHandle>,
+    project_id: String,
+) -> Result<Project, String> {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .switch_project(project_id)
+}
+
+#[tauri::command]
+fn create_project(
+    state: tauri::State<'_, RuntimeHandle>,
+    project_id: String,
+    name: String,
+) -> Result<Project, String> {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .create_project(project_id, name)
+}
+
+#[tauri::command]
+fn delete_project(
+    state: tauri::State<'_, RuntimeHandle>,
+    project_id: String,
+) -> Result<(), String> {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .delete_project(project_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -161,7 +207,11 @@ pub fn run() {
             update_input_action,
             reset_input_actions,
             emit_event,
-            save_project
+            save_project,
+            list_projects,
+            switch_project,
+            create_project,
+            delete_project
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

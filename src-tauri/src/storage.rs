@@ -64,7 +64,67 @@ pub struct ProjectStore {
 }
 
 impl ProjectStore {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
+        pub fn list_projects(&self) -> Result<Vec<(String, String, String)>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, updated_at FROM projects ORDER BY updated_at DESC")
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn load_project(&self, project_id: &str) -> Result<Project, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT snapshot FROM projects WHERE id = ?1")
+            .map_err(|err| err.to_string())?;
+        let bytes: Vec<u8> = stmt
+            .query_row(params![project_id], |row| row.get(0))
+            .map_err(|err| err.to_string())?;
+        let mut project: Project = serde_json::from_slice(&bytes).map_err(|err| err.to_string())?;
+        project.id = project_id.to_string();
+        Ok(project)
+    }
+
+    pub fn create_project(&self, project_id: &str, name: &str) -> Result<Project, String> {
+        let mut project = Project::demo();
+        project.id = project_id.to_string();
+        project.name = name.to_string();
+        self.save_snapshot(&project)?;
+        Ok(project)
+    }
+
+    pub fn delete_project(&self, project_id: &str) -> Result<(), String> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|err| err.to_string())?;
+        tx.execute("DELETE FROM scripts WHERE project_id = ?1", params![project_id])
+            .map_err(|err| err.to_string())?;
+        tx.execute("DELETE FROM structs WHERE project_id = ?1", params![project_id])
+            .map_err(|err| err.to_string())?;
+        tx.execute("DELETE FROM tilesets WHERE project_id = ?1", params![project_id])
+            .map_err(|err| err.to_string())?;
+        tx.execute("DELETE FROM tilemaps WHERE project_id = ?1", params![project_id])
+            .map_err(|err| err.to_string())?;
+        tx.execute("DELETE FROM entities WHERE project_id = ?1", params![project_id])
+            .map_err(|err| err.to_string())?;
+        tx.execute("DELETE FROM input_actions WHERE project_id = ?1", params![project_id])
+            .map_err(|err| err.to_string())?;
+        tx.execute("DELETE FROM runtime_state WHERE project_id = ?1", params![project_id])
+            .map_err(|err| err.to_string())?;
+        tx.execute("DELETE FROM projects WHERE id = ?1", params![project_id])
+            .map_err(|err| err.to_string())?;
+        tx.commit().map_err(|err| err.to_string())?;
+        Ok(())
+    }
+
+pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
         let conn = Connection::open(path).map_err(|err| err.to_string())?;
         conn.execute_batch(SCHEMA).map_err(|err| err.to_string())?;
         Ok(Self { conn })

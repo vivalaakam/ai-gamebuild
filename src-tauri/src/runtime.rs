@@ -209,6 +209,44 @@ impl Runtime {
         self.project()
     }
 
+    pub fn list_projects(&self) -> Result<Vec<ProjectInfo>, String> {
+        let rows = self.store.list_projects()?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, updated_at)| ProjectInfo { id, name, updated_at })
+            .collect())
+    }
+
+    pub fn switch_project(&mut self,
+        project_id: String,
+    ) -> Result<Project, String> {
+        let mut project = self.store.load_project(&project_id)?;
+        project.normalize_demo_scripts();
+        let input_actions = project.input_actions.clone();
+        self.project = Arc::new(Mutex::new(project));
+        self.input = Arc::new(Mutex::new(InputState::from_actions(&input_actions)));
+        self.dispatcher.clear_bindings();
+        self.rebuild_bindings();
+        self.dispatch_now(Event {
+            name: "project_load".into(),
+            payload: json!({}),
+        });
+        self.dispatch_now(Event {
+            name: "init".into(),
+            payload: json!({}),
+        });
+        self.dispatch_queued_events();
+        Ok(self.project())
+    }
+
+    pub fn create_project(&self, project_id: String, name: String) -> Result<Project, String> {
+        self.store.create_project(&project_id, &name)
+    }
+
+    pub fn delete_project(&self, project_id: String) -> Result<(), String> {
+        self.store.delete_project(&project_id)
+    }
+
     pub fn save(&self) -> Result<SaveResult, String> {
         let project = self.project.lock().expect("project state poisoned");
         let snapshot = self.store.save_snapshot(&project)?;
@@ -258,6 +296,13 @@ impl Runtime {
     fn take_draw_commands_from_scripts(&mut self) -> Vec<DrawCommand> {
         std::mem::take(&mut self.draw_commands)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectInfo {
+    pub id: String,
+    pub name: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
