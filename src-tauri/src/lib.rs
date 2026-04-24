@@ -157,16 +157,15 @@ fn switch_project(
 }
 
 #[tauri::command]
-fn create_project(
+fn create_project_cmd(
     state: tauri::State<'_, RuntimeHandle>,
-    project_id: String,
     name: String,
 ) -> Result<Project, String> {
     state
         .runtime
         .lock()
         .expect("runtime state poisoned")
-        .create_project(project_id, name)
+        .create_project(name)
 }
 
 #[tauri::command]
@@ -183,13 +182,16 @@ fn delete_project(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let args: Vec<String> = std::env::args().collect();
+    let default_project_id = args.get(1).cloned();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
+        .setup(move |app| {
             let app_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_dir)?;
-            let runtime = Runtime::open(app_dir.join("projects.sqlite"))
+            let runtime = Runtime::open(app_dir.join("projects.sqlite"), default_project_id.clone())
                 .map_err(|err| Box::<dyn std::error::Error>::from(err))?;
             app.manage(RuntimeHandle {
                 runtime: Mutex::new(runtime),
@@ -210,7 +212,7 @@ pub fn run() {
             save_project,
             list_projects,
             switch_project,
-            create_project,
+            create_project_cmd,
             delete_project
         ])
         .run(tauri::generate_context!())

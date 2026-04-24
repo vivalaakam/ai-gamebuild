@@ -1,5 +1,7 @@
-use crate::model::Project;
+use crate::model::{Project, ScriptUnit, StructUnit, InputAction, Tileset, Tilemap, Entity, EntityId};
 use rusqlite::{params, Connection};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 const SCHEMA: &str = r#"
@@ -40,7 +42,7 @@ CREATE TABLE IF NOT EXISTS tilemaps (
 
 CREATE TABLE IF NOT EXISTS entities (
     project_id TEXT NOT NULL,
-    entity_id INTEGER NOT NULL,
+    entity_id TEXT NOT NULL,
     data TEXT NOT NULL,
     PRIMARY KEY (project_id, entity_id)
 );
@@ -50,6 +52,7 @@ CREATE TABLE IF NOT EXISTS input_actions (
     action_id TEXT NOT NULL,
     label TEXT NOT NULL,
     key_code TEXT NOT NULL,
+    event TEXT NOT NULL,
     PRIMARY KEY (project_id, action_id)
 );
 
@@ -64,7 +67,7 @@ pub struct ProjectStore {
 }
 
 impl ProjectStore {
-        pub fn list_projects(&self) -> Result<Vec<(String, String, String)>, String> {
+    pub fn list_projects(&self) -> Result<Vec<(String, String, String)>, String> {
         let mut stmt = self
             .conn
             .prepare("SELECT id, name, updated_at FROM projects ORDER BY updated_at DESC")
@@ -81,19 +84,26 @@ impl ProjectStore {
     pub fn load_project(&self, project_id: &str) -> Result<Project, String> {
         let mut stmt = self
             .conn
-            .prepare("SELECT snapshot FROM projects WHERE id = ?1")
+            .prepare("SELECT name, snapshot FROM projects WHERE id = ?1")
             .map_err(|err| err.to_string())?;
-        let bytes: Vec<u8> = stmt
-            .query_row(params![project_id], |row| row.get(0))
+        let (name, bytes) = stmt
+            .query_row(params![project_id], |row| {
+                let name: String = row.get(0)?;
+                let bytes: Vec<u8> = row.get(1)?;
+                Ok((name, bytes))
+            })
             .map_err(|err| err.to_string())?;
         let mut project: Project = serde_json::from_slice(&bytes).map_err(|err| err.to_string())?;
         project.id = project_id.to_string();
+        project.name = name;
+        self.apply_db_overrides(&mut project)?;
         Ok(project)
     }
 
-    pub fn create_project(&self, project_id: &str, name: &str) -> Result<Project, String> {
+    pub fn create_project(&self, name: &str) -> Result<Project, String> {
         let mut project = Project::demo();
-        project.id = project_id.to_string();
+        let project_id = uuid::Uuid::new_v4().to_string();
+        project.id = project_id;
         project.name = name.to_string();
         self.save_snapshot(&project)?;
         Ok(project)
@@ -124,7 +134,168 @@ impl ProjectStore {
         Ok(())
     }
 
-pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
+
+    pub fn load_scripts(&self, project_id: &str) -> Result<Vec<ScriptUnit>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT script_id, name, source, dependencies, bindings FROM scripts WHERE project_id = ?1")
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map(params![project_id], |row| {
+                let id: String = row.get(0)?;
+                let name: String = row.get(1)?;
+                let source: String = row.get(2)?;
+                let deps: String = row.get(3)?;
+                let binds: String = row.get(4)?;
+                let dependencies: Vec<String> = serde_json::from_str(&deps).unwrap_or_default();
+                let bindings: std::collections::BTreeSet<String> = serde_json::from_str(&binds).unwrap_or_default();
+                Ok(ScriptUnit { id, name, source, dependencies, bindings })
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn load_structs(&self, project_id: &str) -> Result<Vec<StructUnit>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT struct_id, name, source FROM structs WHERE project_id = ?1")
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map(params![project_id], |row| {
+                let id: String = row.get(0)?;
+                let name: String = row.get(1)?;
+                let source: String = row.get(2)?;
+                Ok(StructUnit { id, name, source })
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn load_input_actions(&self, project_id: &str) -> Result<Vec<InputAction>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT action_id, label, key_code FROM input_actions WHERE project_id = ?1")
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map(params![project_id], |row| {
+                let id: String = row.get(0)?;
+                let label: String = row.get(1)?;
+                let key_code: String = row.get(2)?;
+                Ok(InputAction { id, label, key_code })
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn load_tileset(&self, project_id: &str) -> Result<Option<Tileset>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT metadata FROM tilesets WHERE project_id = ?1")
+            .map_err(|err| err.to_string())?;
+        let result = stmt.query_row(params![project_id], |row| {
+            let meta: String = row.get(0)?;
+            Ok(meta)
+        });
+        match result {
+            Ok(meta) => {
+                let tileset: Tileset = serde_json::from_str(&meta).map_err(|err| err.to_string())?;
+                Ok(Some(tileset))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
+    pub fn load_tilemap(&self, project_id: &str) -> Result<Option<Tilemap>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT data FROM tilemaps WHERE project_id = ?1")
+            .map_err(|err| err.to_string())?;
+        let result = stmt.query_row(params![project_id], |row| {
+            let bytes: Vec<u8> = row.get(0)?;
+            Ok(bytes)
+        });
+        match result {
+            Ok(bytes) => {
+                let tilemap: Tilemap = serde_json::from_slice(&bytes).map_err(|err| err.to_string())?;
+                Ok(Some(tilemap))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
+    pub fn load_entities(&self, project_id: &str) -> Result<BTreeMap<EntityId, Entity>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT data FROM entities WHERE project_id = ?1")
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map(params![project_id], |row| {
+                let data: String = row.get(0)?;
+                let entity: Entity = serde_json::from_str(&data).map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+                Ok((entity.id, entity))
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<BTreeMap<_, _>, _>>()
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn load_runtime_state(&self, project_id: &str) -> Result<Option<Value>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT data FROM runtime_state WHERE project_id = ?1")
+            .map_err(|err| err.to_string())?;
+        let result = stmt.query_row(params![project_id], |row| {
+            let data: String = row.get(0)?;
+            Ok(data)
+        });
+        match result {
+            Ok(data) => {
+                let state: Value = serde_json::from_str(&data).map_err(|err| err.to_string())?;
+                Ok(Some(state))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
+    fn apply_db_overrides(&self, project: &mut Project) -> Result<(), String> {
+        if let Ok(scripts) = self.load_scripts(&project.id) {
+            if !scripts.is_empty() {
+                project.scripts = scripts;
+            }
+        }
+        if let Ok(structs) = self.load_structs(&project.id) {
+            if !structs.is_empty() {
+                project.structs = structs;
+            }
+        }
+        if let Ok(actions) = self.load_input_actions(&project.id) {
+            if !actions.is_empty() {
+                project.input_actions = actions;
+            }
+        }
+        if let Ok(Some(tileset)) = self.load_tileset(&project.id) {
+            project.tileset = tileset;
+        }
+        if let Ok(Some(tilemap)) = self.load_tilemap(&project.id) {
+            project.world.tilemap = tilemap;
+        }
+        if let Ok(entities) = self.load_entities(&project.id) {
+            if !entities.is_empty() {
+                project.world.entities = entities;
+            }
+        }
+        if let Ok(Some(runtime_state)) = self.load_runtime_state(&project.id) {
+            project.runtime_state = runtime_state;
+        }
+        Ok(())
+    }
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
         let conn = Connection::open(path).map_err(|err| err.to_string())?;
         conn.execute_batch(SCHEMA).map_err(|err| err.to_string())?;
         Ok(Self { conn })
@@ -133,12 +304,23 @@ pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
     pub fn load_or_seed(&self) -> Result<Project, String> {
         let mut stmt = self
             .conn
-            .prepare("SELECT snapshot FROM projects WHERE id = ?1")
+            .prepare("SELECT id, name, snapshot FROM projects ORDER BY updated_at DESC LIMIT 1")
             .map_err(|err| err.to_string())?;
-        let existing: Result<Vec<u8>, _> = stmt.query_row(params!["default"], |row| row.get(0));
+        let result = stmt.query_row([], |row| {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let bytes: Vec<u8> = row.get(2)?;
+            Ok((id, name, bytes))
+        });
 
-        match existing {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|err| err.to_string()),
+        match result {
+            Ok((id, name, bytes)) => {
+                let mut project: Project = serde_json::from_slice(&bytes).map_err(|err| err.to_string())?;
+                project.id = id;
+                project.name = name;
+                self.apply_db_overrides(&mut project)?;
+                Ok(project)
+            }
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 let project = Project::demo();
                 self.save_snapshot(&project)?;

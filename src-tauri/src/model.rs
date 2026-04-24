@@ -28,7 +28,7 @@ impl Project {
     pub fn demo() -> Self {
         let world = World::demo();
         Self {
-            id: "default".into(),
+            id: uuid::Uuid::new_v4().to_string(),
             name: "Fantasy Console MVP".into(),
             scripts: ScriptUnit::demo_scripts(),
             structs: StructUnit::demo_structs(),
@@ -51,20 +51,6 @@ impl Project {
         }
         ensure_runtime_state(&mut self.runtime_state, &self.world);
         sync_world_from_runtime_state(&mut self.world, &self.runtime_state);
-
-        if self.world.entities.len() == 1 && self.world.entities.contains_key(&1) {
-            self.world = World::demo();
-            self.runtime_state = default_runtime_state(&self.world);
-        }
-
-        if self.scripts.len() == 1
-            && self.scripts[0].id == "main"
-            && self.scripts[0].source.contains("fn on_init")
-            && self.scripts[0].source.contains("fn on_input")
-            && self.scripts[0].source.contains("fn on_update")
-        {
-            self.scripts = ScriptUnit::demo_scripts();
-        }
 
         for builtin in ScriptUnit::builtin_libraries() {
             if !self.scripts.iter().any(|script| script.id == builtin.id) {

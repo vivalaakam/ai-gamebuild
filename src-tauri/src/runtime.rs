@@ -19,9 +19,15 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn open(db_path: PathBuf) -> Result<Self, String> {
+    pub fn open(db_path: PathBuf, default_project_id: Option<String>) -> Result<Self, String> {
         let store = ProjectStore::open(db_path)?;
-        let mut project = store.load_or_seed()?;
+
+        let mut project = if let Some(project_id) = default_project_id {
+            store.load_project(&project_id)
+        } else {
+            store.load_or_seed()
+        }?;
+
         project.normalize_demo_scripts();
         let input_actions = project.input_actions.clone();
         let mut runtime = Self {
@@ -239,8 +245,8 @@ impl Runtime {
         Ok(self.project())
     }
 
-    pub fn create_project(&self, project_id: String, name: String) -> Result<Project, String> {
-        self.store.create_project(&project_id, &name)
+    pub fn create_project(&self, name: String) -> Result<Project, String> {
+        self.store.create_project(&name)
     }
 
     pub fn delete_project(&self, project_id: String) -> Result<(), String> {
