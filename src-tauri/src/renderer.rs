@@ -24,6 +24,8 @@ pub struct VisibleEntity {
     pub tile_id: TileId,
     pub screen_x: i32,
     pub screen_y: i32,
+    pub is_active: bool,
+    pub opacity: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,17 +68,44 @@ pub fn build_frame(
     }
 
     let visible_entities = project
-        .world
-        .entities
-        .values()
-        .filter(|entity| entity.flags.visible)
-        .map(|entity| VisibleEntity {
-            id: entity.id,
-            tile_id: entity.render.tile_id,
-            screen_x: entity.transform.x * tile_size - camera.x,
-            screen_y: entity.transform.y * tile_size - camera.y,
+        .runtime_state
+        .get("active_entity_id")
+        .and_then(|value| value.as_u64())
+        .map(|active_id| {
+            project
+                .world
+                .entities
+                .values()
+                .filter(|entity| entity.flags.visible)
+                .map(|entity| {
+                    let is_active = entity.id == active_id;
+                    VisibleEntity {
+                        id: entity.id,
+                        tile_id: entity.render.tile_id,
+                        screen_x: entity.transform.x * tile_size - camera.x,
+                        screen_y: entity.transform.y * tile_size - camera.y,
+                        is_active,
+                        opacity: if is_active { 1.0 } else { 0.5 },
+                    }
+                })
+                .collect()
         })
-        .collect();
+        .unwrap_or_else(|| {
+            project
+                .world
+                .entities
+                .values()
+                .filter(|entity| entity.flags.visible)
+                .map(|entity| VisibleEntity {
+                    id: entity.id,
+                    tile_id: entity.render.tile_id,
+                    screen_x: entity.transform.x * tile_size - camera.x,
+                    screen_y: entity.transform.y * tile_size - camera.y,
+                    is_active: false,
+                    opacity: 0.5,
+                })
+                .collect()
+        });
 
     FrameView {
         virtual_width: VIRTUAL_WIDTH,

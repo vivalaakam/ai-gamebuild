@@ -1,6 +1,6 @@
 use crate::events::Event;
 use crate::input::InputState;
-use crate::model::{Entity, EntityFlags, Project, RenderComponent, ScriptBinding, Transform};
+use crate::model::{Entity, EntityFlags, Project, RenderComponent, Transform};
 use crate::renderer::DrawCommand;
 use rhai::{Array, Dynamic, Engine, EvalAltResult, Map, Scope};
 use serde_json::{json, Number, Value};
@@ -74,7 +74,7 @@ impl ScriptRuntime {
 
         let mut errors = Vec::new();
         for script_id in script_ids {
-            let Some(source) = source_with_dependencies(&script_id, &scripts) else {
+            let Some(source) = source_with_dependencies(&script_id, &project, &scripts) else {
                 errors.push(format!("missing script '{script_id}'"));
                 continue;
             };
@@ -90,7 +90,7 @@ impl ScriptRuntime {
             let fn_name = format!("on_{}", event.name);
             let payload = json_to_dynamic(&event.payload);
             let mut scope = Scope::new();
-            let result: Result<(), Box<EvalAltResult>> =
+            let result: Result<Dynamic, Box<EvalAltResult>> =
                 engine.call_fn(&mut scope, &ast, &fn_name, (payload,));
             if let Err(err) = result {
                 if !err.to_string().contains("Function not found") {
@@ -115,6 +115,22 @@ pub struct ScriptDispatchResult {
     pub emitted_events: Vec<Event>,
     pub draw_commands: Vec<DrawCommand>,
     pub logs: Vec<String>,
+}
+
+pub fn validate_source(source: &str) -> Result<(), String> {
+    Engine::new()
+        .compile(source)
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+pub fn validate_project_source(project: &Project, source: &str) -> Result<(), String> {
+    let mut full_source = shared_source(project);
+    full_source.push_str(source);
+    Engine::new()
+        .compile(full_source)
+        .map(|_| ())
+        .map_err(|err| err.to_string())
 }
 
 fn build_engine(host: ScriptHost) -> Engine {
@@ -172,31 +188,34 @@ fn build_engine(host: ScriptHost) -> Engine {
     });
 
     let h = host.clone();
-    engine.register_fn("spawn_entity", move |kind: String, x: i64, y: i64| -> i64 {
-        let mut project = h.project.lock().expect("project state poisoned");
-        let id = project.world.next_entity_id;
-        project.world.next_entity_id += 1;
-        project.world.entities.insert(
-            id,
-            Entity {
+    engine.register_fn(
+        "entity_spawn_raw",
+        move |kind: String, x: i64, y: i64, tile_id: i64, blocking: bool| -> i64 {
+            let mut project = h.project.lock().expect("project state poisoned");
+            let id = project.world.next_entity_id;
+            project.world.next_entity_id += 1;
+            project.world.entities.insert(
                 id,
-                transform: Transform {
-                    x: x as i32,
-                    y: y as i32,
+                Entity {
+                    id,
+                    transform: Transform {
+                        x: x as i32,
+                        y: y as i32,
+                    },
+                    render: RenderComponent {
+                        tile_id: tile_id.max(0) as u32,
+                    },
+                    flags: EntityFlags {
+                        visible: true,
+                        blocking,
+                    },
+                    script: None,
+                    state: json!({ "kind": kind }),
                 },
-                render: RenderComponent { tile_id: 2 },
-                flags: EntityFlags {
-                    visible: true,
-                    blocking: false,
-                },
-                script: Some(ScriptBinding {
-                    script_id: "main".into(),
-                }),
-                state: json!({ "kind": kind }),
-            },
-        );
-        id as i64
-    });
+            );
+            id as i64
+        },
+    );
 
     let h = host.clone();
     engine.register_fn("remove_entity", move |id: i64| -> bool {
@@ -210,16 +229,76 @@ fn build_engine(host: ScriptHost) -> Engine {
     });
 
     let h = host.clone();
-    engine.register_fn("set_entity_pos", move |id: i64, x: i64, y: i64| -> bool {
+    engine.register_fn(
+        "entity_set_pos_raw",
+        move |id: i64, x: i64, y: i64| -> bool {
+            let mut project = h.project.lock().expect("project state poisoned");
+            let Some(entity) = project.world.entities.get_mut(&(id.max(0) as u64)) else {
+                return false;
+            };
+            entity.transform = Transform {
+                x: x as i32,
+                y: y as i32,
+            };
+            true
+        },
+    );
+
+    let h = host.clone();
+    engine.register_fn("entity_next_id", move |current_id: i64| -> i64 {
+        let project = h.project.lock().expect("project state poisoned");
+        let current_id = current_id.max(0) as u64;
+        project
+            .world
+            .entities
+            .keys()
+            .copied()
+            .find(|id| *id > current_id)
+            .or_else(|| project.world.entities.keys().next().copied())
+            .unwrap_or(0) as i64
+    });
+
+    let h = host.clone();
+    engine.register_fn("state_get", move |key: String| -> Dynamic {
+        let project = h.project.lock().expect("project state poisoned");
+        project
+            .runtime_state
+            .get(&key)
+            .map(json_to_dynamic)
+            .unwrap_or(Dynamic::UNIT)
+    });
+
+    let h = host.clone();
+    engine.register_fn("state_set", move |key: String, value: Dynamic| {
         let mut project = h.project.lock().expect("project state poisoned");
-        let Some(entity) = project.world.entities.get_mut(&(id.max(0) as u64)) else {
-            return false;
-        };
-        entity.transform = Transform {
-            x: x as i32,
-            y: y as i32,
-        };
-        true
+        if !project.runtime_state.is_object() {
+            project.runtime_state = json!({});
+        }
+        if let Some(state) = project.runtime_state.as_object_mut() {
+            state.insert(key, dynamic_to_json(&value));
+        }
+    });
+
+    let h = host.clone();
+    engine.register_fn("state_remove", move |key: String| -> bool {
+        let mut project = h.project.lock().expect("project state poisoned");
+        project
+            .runtime_state
+            .as_object_mut()
+            .and_then(|state| state.remove(&key))
+            .is_some()
+    });
+
+    let h = host.clone();
+    engine.register_fn("entity_ids", move || -> Array {
+        h.project
+            .lock()
+            .expect("project state poisoned")
+            .world
+            .entities
+            .keys()
+            .map(|id| Dynamic::from(*id as i64))
+            .collect()
     });
 
     let h = host.clone();
@@ -274,6 +353,7 @@ fn build_engine(host: ScriptHost) -> Engine {
 
 fn source_with_dependencies(
     script_id: &str,
+    project: &Project,
     scripts: &BTreeMap<String, crate::model::ScriptUnit>,
 ) -> Option<String> {
     fn visit(
@@ -295,9 +375,25 @@ fn source_with_dependencies(
     }
 
     let mut seen = BTreeSet::new();
-    let mut output = String::new();
+    let mut output = shared_source(project);
+    for script in project
+        .scripts
+        .iter()
+        .filter(|script| script.bindings.is_empty())
+    {
+        visit(&script.id, scripts, &mut seen, &mut output)?;
+    }
     visit(script_id, scripts, &mut seen, &mut output)?;
     Some(output)
+}
+
+fn shared_source(project: &Project) -> String {
+    let mut output = String::new();
+    for unit in &project.structs {
+        output.push_str(&unit.source);
+        output.push('\n');
+    }
+    output
 }
 
 fn entity_to_map(entity: &Entity) -> Map {

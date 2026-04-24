@@ -21,10 +21,17 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100%;
+  overflow: hidden;
 }
 
 button,
@@ -46,8 +53,16 @@ button:hover {
   box-shadow: 2px 2px 0 var(--accent-dark);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.85);
+  opacity: 0.55;
+  transform: none;
+}
+
 .app-shell {
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
   padding: 1.25rem;
 }
 
@@ -91,14 +106,37 @@ h2 {
   gap: 0.75rem;
 }
 
+.panel-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.panel-heading h2 {
+  margin-bottom: 0;
+}
+
+button.compact {
+  box-shadow: 2px 2px 0 var(--accent-dark);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.55rem;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: 220px minmax(280px, 1fr) minmax(320px, 720px);
-  grid-template-rows: minmax(420px, 1fr) 180px;
+  grid-template-rows: minmax(0, 1fr) 180px;
   gap: 1rem;
+  height: calc(100% - 7.5rem);
+  min-height: 0;
 }
 
+.left-rail,
 .script-tree,
+.struct-tree,
+.events-tree,
 .editor,
 .preview,
 .console {
@@ -108,11 +146,26 @@ h2 {
   padding: 1rem;
 }
 
-.script-tree {
+.left-rail {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  gap: 1rem;
   grid-row: 1 / 3;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
 }
 
-.script-tree button {
+.script-tree,
+.struct-tree,
+.events-tree {
+  min-height: 0;
+}
+
+.script-tree button,
+.struct-tree button,
+.events-tree button {
   align-items: start;
   background: transparent;
   box-shadow: none;
@@ -124,15 +177,86 @@ h2 {
   width: 100%;
 }
 
-.script-tree button.selected {
+.script-tree .compact,
+.struct-tree .compact,
+.events-tree .compact {
+  align-items: center;
+  background: var(--accent);
+  box-shadow: 2px 2px 0 var(--accent-dark);
+  color: #fffaf0;
+  margin-bottom: 0;
+  width: auto;
+}
+
+.script-tree button.selected,
+.struct-tree button.selected,
+.events-tree button.selected {
   background: var(--green);
   color: #fffaf0;
 }
 
-.script-tree small {
+.events-tree button.listening {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.script-tree small,
+.struct-tree small,
+.events-tree small {
   opacity: 0.72;
 }
 
+.editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.editor-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor .monaco-editor {
+  outline: 1px solid #17140f;
+}
+
+.validation {
+  border: 1px solid currentColor;
+  font-family: "SFMono-Regular", "Cascadia Code", monospace;
+  font-size: 0.75rem;
+  padding: 0.18rem 0.45rem;
+  text-transform: uppercase;
+}
+
+.validation.ok {
+  color: var(--green);
+}
+
+.validation.error,
+.validation-message {
+  color: var(--accent);
+}
+
+.validation-message {
+  background: #fff7e8;
+  border-top: 1px solid var(--line);
+  bottom: 1rem;
+  font-family: "SFMono-Regular", "Cascadia Code", monospace;
+  font-size: 0.78rem;
+  left: 1rem;
+  margin: 0;
+  max-height: 5.5rem;
+  overflow: auto;
+  padding: 0.55rem;
+  position: absolute;
+  right: 1rem;
+}
+
+/*
 .editor textarea {
   background: #17140f;
   border: 0;
@@ -147,12 +271,18 @@ h2 {
   resize: none;
   width: 100%;
 }
+*/
 
 .preview canvas {
   background: #101820;
   image-rendering: pixelated;
   max-width: 100%;
   width: 100%;
+}
+
+.preview {
+  min-height: 0;
+  overflow: auto;
 }
 
 .hint,
@@ -165,6 +295,7 @@ h2 {
 .console {
   grid-column: 2 / 4;
   overflow: auto;
+  min-height: 0;
 }
 
 .console code {
@@ -175,6 +306,15 @@ h2 {
 }
 
 @media (max-width: 1100px) {
+  body {
+    overflow: auto;
+  }
+
+  .app-shell {
+    height: auto;
+    overflow: visible;
+  }
+
   .topbar,
   .actions {
     align-items: stretch;
@@ -182,11 +322,16 @@ h2 {
   }
 
   .workspace {
+    height: auto;
     grid-template-columns: 1fr;
     grid-template-rows: auto;
+    overflow: auto;
   }
 
   .script-tree,
+  .struct-tree,
+  .events-tree,
+  .left-rail,
   .console {
     grid-column: auto;
     grid-row: auto;

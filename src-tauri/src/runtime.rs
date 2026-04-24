@@ -1,8 +1,8 @@
 use crate::events::{Event, EventDispatcher};
 use crate::input::{InputState, RawInput};
-use crate::model::Project;
+use crate::model::{InputAction, Project, ScriptUnit, StructUnit};
 use crate::renderer::{build_frame, DrawCommand, FrameView};
-use crate::scripting::ScriptRuntime;
+use crate::scripting::{validate_project_source, validate_source, ScriptRuntime};
 use crate::storage::ProjectStore;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -21,10 +21,12 @@ pub struct Runtime {
 impl Runtime {
     pub fn open(db_path: PathBuf) -> Result<Self, String> {
         let store = ProjectStore::open(db_path)?;
-        let project = store.load_or_seed()?;
+        let mut project = store.load_or_seed()?;
+        project.normalize_demo_scripts();
+        let input_actions = project.input_actions.clone();
         let mut runtime = Self {
             project: Arc::new(Mutex::new(project)),
-            input: Arc::new(Mutex::new(InputState::default())),
+            input: Arc::new(Mutex::new(InputState::from_actions(&input_actions))),
             dispatcher: EventDispatcher::default(),
             store,
             logs: Vec::new(),
@@ -83,6 +85,10 @@ impl Runtime {
     }
 
     pub fn update_script(&mut self, script_id: String, source: String) -> Result<Project, String> {
+        {
+            let project = self.project.lock().expect("project state poisoned");
+            validate_project_source(&project, &source)?;
+        }
         let mut project = self.project.lock().expect("project state poisoned");
         let Some(script) = project
             .scripts
@@ -95,6 +101,112 @@ impl Runtime {
         drop(project);
         self.rebuild_bindings();
         Ok(self.project())
+    }
+
+    pub fn validate_script(&self, source: String) -> ValidationResult {
+        match validate_source(&source) {
+            Ok(()) => ValidationResult {
+                valid: true,
+                error: None,
+            },
+            Err(error) => ValidationResult {
+                valid: false,
+                error: Some(error),
+            },
+        }
+    }
+
+    pub fn create_script(&mut self) -> Result<Project, String> {
+        let mut project = self.project.lock().expect("project state poisoned");
+        let mut index = project.scripts.len() + 1;
+        let id = loop {
+            let candidate = format!("script_{index}");
+            if !project.scripts.iter().any(|script| script.id == candidate) {
+                break candidate;
+            }
+            index += 1;
+        };
+        let name = format!("{id}.rhai");
+        project.scripts.push(ScriptUnit::new(
+            &id,
+            name,
+            r#"fn name_fn(payload) {
+    
+}"#,
+            ["custom"],
+        ));
+        drop(project);
+        self.rebuild_bindings();
+        Ok(self.project())
+    }
+
+    pub fn create_struct(&mut self) -> Project {
+        let mut project = self.project.lock().expect("project state poisoned");
+        let mut index = project.structs.len() + 1;
+        let id = loop {
+            let candidate = format!("struct_{index}");
+            if !project.structs.iter().any(|unit| unit.id == candidate) {
+                break candidate;
+            }
+            index += 1;
+        };
+        project.structs.push(StructUnit::new(
+            &id,
+            format!("{id}.rhai"),
+            r#"fn make_name(payload) {
+    return #{
+        
+    };
+}"#,
+        ));
+        drop(project);
+        self.project()
+    }
+
+    pub fn update_struct(&mut self, struct_id: String, source: String) -> Result<Project, String> {
+        validate_source(&source)?;
+        let mut project = self.project.lock().expect("project state poisoned");
+        let Some(unit) = project.structs.iter_mut().find(|unit| unit.id == struct_id) else {
+            return Err(format!("unknown struct '{struct_id}'"));
+        };
+        unit.source = source;
+        drop(project);
+        Ok(self.project())
+    }
+
+    pub fn update_input_action(
+        &mut self,
+        action_id: String,
+        key_code: String,
+    ) -> Result<Project, String> {
+        let mut project = self.project.lock().expect("project state poisoned");
+        let Some(action) = project
+            .input_actions
+            .iter_mut()
+            .find(|action| action.id == action_id)
+        else {
+            return Err(format!("unknown input action '{action_id}'"));
+        };
+        action.key_code = key_code;
+        let actions = project.input_actions.clone();
+        drop(project);
+        self.input
+            .lock()
+            .expect("input state poisoned")
+            .set_actions(&actions);
+        Ok(self.project())
+    }
+
+    pub fn reset_input_actions(&mut self) -> Project {
+        let mut project = self.project.lock().expect("project state poisoned");
+        project.input_actions = InputAction::defaults();
+        let actions = project.input_actions.clone();
+        drop(project);
+        self.input
+            .lock()
+            .expect("input state poisoned")
+            .set_actions(&actions);
+        self.project()
     }
 
     pub fn save(&self) -> Result<SaveResult, String> {
@@ -151,4 +263,10 @@ impl Runtime {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaveResult {
     pub snapshot_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationResult {
+    pub valid: bool,
+    pub error: Option<String>,
 }

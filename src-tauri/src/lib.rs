@@ -10,7 +10,7 @@ mod storage;
 use input::RawInput;
 use model::Project;
 use renderer::FrameView;
-use runtime::{Runtime, SaveResult};
+use runtime::{Runtime, SaveResult, ValidationResult};
 use serde_json::Value;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -55,6 +55,68 @@ fn update_script(
 }
 
 #[tauri::command]
+fn validate_script(state: tauri::State<'_, RuntimeHandle>, source: String) -> ValidationResult {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .validate_script(source)
+}
+
+#[tauri::command]
+fn create_script(state: tauri::State<'_, RuntimeHandle>) -> Result<Project, String> {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .create_script()
+}
+
+#[tauri::command]
+fn create_struct(state: tauri::State<'_, RuntimeHandle>) -> Project {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .create_struct()
+}
+
+#[tauri::command]
+fn update_struct(
+    state: tauri::State<'_, RuntimeHandle>,
+    struct_id: String,
+    source: String,
+) -> Result<Project, String> {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .update_struct(struct_id, source)
+}
+
+#[tauri::command]
+fn update_input_action(
+    state: tauri::State<'_, RuntimeHandle>,
+    action_id: String,
+    key_code: String,
+) -> Result<Project, String> {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .update_input_action(action_id, key_code)
+}
+
+#[tauri::command]
+fn reset_input_actions(state: tauri::State<'_, RuntimeHandle>) -> Project {
+    state
+        .runtime
+        .lock()
+        .expect("runtime state poisoned")
+        .reset_input_actions()
+}
+
+#[tauri::command]
 fn emit_event(
     state: tauri::State<'_, RuntimeHandle>,
     name: String,
@@ -92,6 +154,12 @@ pub fn run() {
             load_project,
             run_frame,
             update_script,
+            validate_script,
+            create_script,
+            create_struct,
+            update_struct,
+            update_input_action,
+            reset_input_actions,
             emit_event,
             save_project
         ])

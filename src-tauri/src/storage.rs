@@ -20,6 +20,14 @@ CREATE TABLE IF NOT EXISTS scripts (
     PRIMARY KEY (project_id, script_id)
 );
 
+CREATE TABLE IF NOT EXISTS structs (
+    project_id TEXT NOT NULL,
+    struct_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    PRIMARY KEY (project_id, struct_id)
+);
+
 CREATE TABLE IF NOT EXISTS tilesets (
     project_id TEXT PRIMARY KEY,
     metadata TEXT NOT NULL
@@ -35,6 +43,19 @@ CREATE TABLE IF NOT EXISTS entities (
     entity_id INTEGER NOT NULL,
     data TEXT NOT NULL,
     PRIMARY KEY (project_id, entity_id)
+);
+
+CREATE TABLE IF NOT EXISTS input_actions (
+    project_id TEXT NOT NULL,
+    action_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    key_code TEXT NOT NULL,
+    PRIMARY KEY (project_id, action_id)
+);
+
+CREATE TABLE IF NOT EXISTS runtime_state (
+    project_id TEXT PRIMARY KEY,
+    data TEXT NOT NULL
 );
 "#;
 
@@ -105,6 +126,18 @@ impl ProjectStore {
             .map_err(|err| err.to_string())?;
         }
 
+        for unit in &project.structs {
+            tx.execute(
+                "INSERT INTO structs (project_id, struct_id, name, source)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(project_id, struct_id) DO UPDATE SET
+                    name = excluded.name,
+                    source = excluded.source",
+                params![project.id, unit.id, unit.name, unit.source],
+            )
+            .map_err(|err| err.to_string())?;
+        }
+
         tx.execute(
             "INSERT INTO tilesets (project_id, metadata)
              VALUES (?1, ?2)
@@ -140,6 +173,29 @@ impl ProjectStore {
             )
             .map_err(|err| err.to_string())?;
         }
+
+        for action in &project.input_actions {
+            tx.execute(
+                "INSERT INTO input_actions (project_id, action_id, label, key_code)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(project_id, action_id) DO UPDATE SET
+                    label = excluded.label,
+                    key_code = excluded.key_code",
+                params![project.id, action.id, action.label, action.key_code],
+            )
+            .map_err(|err| err.to_string())?;
+        }
+
+        tx.execute(
+            "INSERT INTO runtime_state (project_id, data)
+             VALUES (?1, ?2)
+             ON CONFLICT(project_id) DO UPDATE SET data = excluded.data",
+            params![
+                project.id,
+                serde_json::to_string(&project.runtime_state).map_err(|err| err.to_string())?
+            ],
+        )
+        .map_err(|err| err.to_string())?;
 
         tx.commit().map_err(|err| err.to_string())?;
         Ok(snapshot)
