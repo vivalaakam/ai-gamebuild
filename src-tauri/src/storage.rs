@@ -1,4 +1,6 @@
-use crate::model::{Project, ScriptUnit, StructUnit, InputAction, Tileset, Tilemap, Entity, EntityId};
+use crate::model::{
+    Entity, EntityId, InputAction, Project, ScriptUnit, StructUnit, Tilemap, Tileset,
+};
 use rusqlite::{params, Connection};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -74,7 +76,11 @@ impl ProjectStore {
             .map_err(|err| err.to_string())?;
         let rows = stmt
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })
             .map_err(|err| err.to_string())?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -114,26 +120,46 @@ impl ProjectStore {
             .conn
             .unchecked_transaction()
             .map_err(|err| err.to_string())?;
-        tx.execute("DELETE FROM scripts WHERE project_id = ?1", params![project_id])
-            .map_err(|err| err.to_string())?;
-        tx.execute("DELETE FROM structs WHERE project_id = ?1", params![project_id])
-            .map_err(|err| err.to_string())?;
-        tx.execute("DELETE FROM tilesets WHERE project_id = ?1", params![project_id])
-            .map_err(|err| err.to_string())?;
-        tx.execute("DELETE FROM tilemaps WHERE project_id = ?1", params![project_id])
-            .map_err(|err| err.to_string())?;
-        tx.execute("DELETE FROM entities WHERE project_id = ?1", params![project_id])
-            .map_err(|err| err.to_string())?;
-        tx.execute("DELETE FROM input_actions WHERE project_id = ?1", params![project_id])
-            .map_err(|err| err.to_string())?;
-        tx.execute("DELETE FROM runtime_state WHERE project_id = ?1", params![project_id])
-            .map_err(|err| err.to_string())?;
+        tx.execute(
+            "DELETE FROM scripts WHERE project_id = ?1",
+            params![project_id],
+        )
+        .map_err(|err| err.to_string())?;
+        tx.execute(
+            "DELETE FROM structs WHERE project_id = ?1",
+            params![project_id],
+        )
+        .map_err(|err| err.to_string())?;
+        tx.execute(
+            "DELETE FROM tilesets WHERE project_id = ?1",
+            params![project_id],
+        )
+        .map_err(|err| err.to_string())?;
+        tx.execute(
+            "DELETE FROM tilemaps WHERE project_id = ?1",
+            params![project_id],
+        )
+        .map_err(|err| err.to_string())?;
+        tx.execute(
+            "DELETE FROM entities WHERE project_id = ?1",
+            params![project_id],
+        )
+        .map_err(|err| err.to_string())?;
+        tx.execute(
+            "DELETE FROM input_actions WHERE project_id = ?1",
+            params![project_id],
+        )
+        .map_err(|err| err.to_string())?;
+        tx.execute(
+            "DELETE FROM runtime_state WHERE project_id = ?1",
+            params![project_id],
+        )
+        .map_err(|err| err.to_string())?;
         tx.execute("DELETE FROM projects WHERE id = ?1", params![project_id])
             .map_err(|err| err.to_string())?;
         tx.commit().map_err(|err| err.to_string())?;
         Ok(())
     }
-
 
     pub fn load_scripts(&self, project_id: &str) -> Result<Vec<ScriptUnit>, String> {
         let mut stmt = self
@@ -148,8 +174,15 @@ impl ProjectStore {
                 let deps: String = row.get(3)?;
                 let binds: String = row.get(4)?;
                 let dependencies: Vec<String> = serde_json::from_str(&deps).unwrap_or_default();
-                let bindings: std::collections::BTreeSet<String> = serde_json::from_str(&binds).unwrap_or_default();
-                Ok(ScriptUnit { id, name, source, dependencies, bindings })
+                let bindings: std::collections::BTreeSet<String> =
+                    serde_json::from_str(&binds).unwrap_or_default();
+                Ok(ScriptUnit {
+                    id,
+                    name,
+                    source,
+                    dependencies,
+                    bindings,
+                })
             })
             .map_err(|err| err.to_string())?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -183,7 +216,11 @@ impl ProjectStore {
                 let id: String = row.get(0)?;
                 let label: String = row.get(1)?;
                 let key_code: String = row.get(2)?;
-                Ok(InputAction { id, label, key_code })
+                Ok(InputAction {
+                    id,
+                    label,
+                    key_code,
+                })
             })
             .map_err(|err| err.to_string())?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -201,7 +238,8 @@ impl ProjectStore {
         });
         match result {
             Ok(meta) => {
-                let tileset: Tileset = serde_json::from_str(&meta).map_err(|err| err.to_string())?;
+                let tileset: Tileset =
+                    serde_json::from_str(&meta).map_err(|err| err.to_string())?;
                 Ok(Some(tileset))
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -220,7 +258,8 @@ impl ProjectStore {
         });
         match result {
             Ok(bytes) => {
-                let tilemap: Tilemap = serde_json::from_slice(&bytes).map_err(|err| err.to_string())?;
+                let tilemap: Tilemap =
+                    serde_json::from_slice(&bytes).map_err(|err| err.to_string())?;
                 Ok(Some(tilemap))
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -236,7 +275,8 @@ impl ProjectStore {
         let rows = stmt
             .query_map(params![project_id], |row| {
                 let data: String = row.get(0)?;
-                let entity: Entity = serde_json::from_str(&data).map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+                let entity: Entity = serde_json::from_str(&data)
+                    .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
                 Ok((entity.id, entity))
             })
             .map_err(|err| err.to_string())?;
@@ -315,7 +355,8 @@ impl ProjectStore {
 
         match result {
             Ok((id, name, bytes)) => {
-                let mut project: Project = serde_json::from_slice(&bytes).map_err(|err| err.to_string())?;
+                let mut project: Project =
+                    serde_json::from_slice(&bytes).map_err(|err| err.to_string())?;
                 project.id = id;
                 project.name = name;
                 self.apply_db_overrides(&mut project)?;

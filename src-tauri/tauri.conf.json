@@ -31,5 +31,29 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "cli": {
+      "description": "AI RPG v3 - fantasy console",
+      "subcommands": {
+        "mcp": {
+          "description": "Run MCP server for AI coding agents",
+          "args": [
+            {
+              "name": "db-path",
+              "short": "d",
+              "takesValue": true,
+              "description": "Path to SQLite database"
+            },
+            {
+              "name": "project-id",
+              "short": "p",
+              "takesValue": true,
+              "description": "Project ID to serve"
+            }
+          ]
+        }
+      }
+    }
   }
 }

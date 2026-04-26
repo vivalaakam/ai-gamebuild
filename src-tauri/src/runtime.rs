@@ -219,13 +219,15 @@ impl Runtime {
         let rows = self.store.list_projects()?;
         Ok(rows
             .into_iter()
-            .map(|(id, name, updated_at)| ProjectInfo { id, name, updated_at })
+            .map(|(id, name, updated_at)| ProjectInfo {
+                id,
+                name,
+                updated_at,
+            })
             .collect())
     }
 
-    pub fn switch_project(&mut self,
-        project_id: String,
-    ) -> Result<Project, String> {
+    pub fn switch_project(&mut self, project_id: String) -> Result<Project, String> {
         let mut project = self.store.load_project(&project_id)?;
         project.normalize_demo_scripts();
         let input_actions = project.input_actions.clone();

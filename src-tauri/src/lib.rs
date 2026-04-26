@@ -1,22 +1,25 @@
 mod events;
 mod input;
-mod model;
+pub mod jsonrpc;
+pub mod mcp;
+pub mod model;
 mod renderer;
 mod rng;
 mod runtime;
-mod scripting;
-mod storage;
+pub mod scripting;
+pub mod storage;
 
 use input::RawInput;
 use model::Project;
 use renderer::FrameView;
-use runtime::{Runtime, SaveResult, ValidationResult, ProjectInfo};
+use runtime::{ProjectInfo, Runtime, SaveResult, ValidationResult};
 use serde_json::Value;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
+use tauri_plugin_cli::CliExt;
 
 struct RuntimeHandle {
-    runtime: Mutex<Runtime>,
+    runtime: Arc<Mutex<Runtime>>,
 }
 
 #[tauri::command]
@@ -188,14 +191,73 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_cli::init())
         .setup(move |app| {
+            // Check for MCP subcommand before initializing GUI
+            let matches = app.cli().matches()?;
+            if let Some(subcommand) = matches.subcommand {
+                if subcommand.name == "mcp" {
+                    let db_path = match subcommand.matches.args.get("db-path") {
+                        Some(data) => match &data.value {
+                            serde_json::Value::String(s) => std::path::PathBuf::from(s),
+                            _ => app.path().app_data_dir()?.join("projects.sqlite"),
+                        },
+                        None => app.path().app_data_dir()?.join("projects.sqlite"),
+                    };
+                    let project_id = match subcommand.matches.args.get("project-id") {
+                        Some(data) => match &data.value {
+                            serde_json::Value::String(s) => s.clone(),
+                            _ => {
+                                eprintln!("Missing --project-id");
+                                std::process::exit(1);
+                            }
+                        },
+                        None => {
+                            eprintln!("Missing --project-id");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    let mut server = mcp::McpServer::open(db_path, project_id)
+                        .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+                    server
+                        .run()
+                        .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+                    std::process::exit(0);
+                }
+            }
+
             let app_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_dir)?;
-            let runtime = Runtime::open(app_dir.join("projects.sqlite"), default_project_id.clone())
-                .map_err(|err| Box::<dyn std::error::Error>::from(err))?;
+            let runtime =
+                Runtime::open(app_dir.join("projects.sqlite"), default_project_id.clone())
+                    .map_err(|err| Box::<dyn std::error::Error>::from(err))?;
+
+            // Share the same runtime between GUI and JSON-RPC
+            let runtime = Arc::new(Mutex::new(runtime));
+
             app.manage(RuntimeHandle {
-                runtime: Mutex::new(runtime),
+                runtime: runtime.clone(),
             });
+
+            // Start JSON-RPC server via axum on localhost:3001
+            // Uses the same application runtime state as the GUI
+            tauri::async_runtime::spawn(async move {
+                let handler = jsonrpc::JsonRpcHandler::new(runtime);
+                let handler = Arc::new(Mutex::new(handler));
+                let router = jsonrpc::router(handler);
+
+                match tokio::net::TcpListener::bind("0.0.0.0:3001").await {
+                    Ok(listener) => {
+                        eprintln!("JSON-RPC server listening on http://0.0.0.0:3001/jsonrpc");
+                        axum::serve(listener, router).await.ok();
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to bind JSON-RPC server: {}", e);
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

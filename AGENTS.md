@@ -339,3 +339,53 @@ The agent does not "remember".
 OpenViking remembers.
 
 The agent **maintains and evolves that memory system**.
+---
+
+## MCP Server — ai-rpg-v3
+
+This project exposes an MCP (Model Context Protocol) server for AI coding agents to edit scripts and structs directly.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_project` | Get current project info (scripts, structs, input actions) |
+| `list_scripts` | List all scripts with full source |
+| `get_script` | Get a single script by `id` or `name` |
+| `update_script` | Update a script source by `id` |
+| `list_structs` | List all structs with full source |
+| `get_struct` | Get a single struct by `id` or `name` |
+| `update_struct` | Update a struct source by `id` |
+| `build_code` | Validate and build the entire project code |
+
+### Setup (run in your terminal)
+
+```bash
+# Option 1: Using the setup script
+./scripts/setup-codex-mcp.sh
+
+# Option 2: Manual add via Codex CLI
+codex mcp add ai-rpg-v3 -- \
+  "$(pwd)/src-tauri/target/release/mcp" \
+  --db-path "$HOME/Library/Application Support/com.vivalaakam.ai-rpg-v3/projects.sqlite" \
+  --project-id "f573674f-2403-4132-8264-0a7d4ec0a4bd"
+
+# Option 3: Append TOML snippet to ~/.codex/config.toml
+cat scripts/codex-mcp-config.toml >> ~/.codex/config.toml
+```
+
+### Verify
+
+```bash
+codex mcp list
+```
+
+### Standalone Binary
+
+The MCP server also runs as a standalone binary:
+
+```bash
+./src-tauri/target/release/mcp \
+  --db-path "$HOME/Library/Application Support/com.vivalaakam.ai-rpg-v3/projects.sqlite" \
+  --project-id "f573674f-2403-4132-8264-0a7d4ec0a4bd"
+```
