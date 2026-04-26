@@ -40,6 +40,35 @@ codex mcp add ai-rpg-v3 -- \
 
 Verify with `codex mcp list`.
 
+## MCP Proxy (live app)
+
+Proxy to the running app JSON-RPC so the coding agent can use live state.
+
+```bash
+cd packages/mcp-proxy
+cargo run -- --url http://127.0.0.1:3001/jsonrpc
+```
+
+Register it in Codex CLI:
+
+```bash
+cd packages/mcp-proxy
+cargo build --release
+
+codex mcp add ai-rpg-live -- \
+  "$(pwd)/target/release/ai-rpg-mcp-proxy" \
+  --url "http://127.0.0.1:3001/jsonrpc"
+```
+
+## Rust World Viewer
+
+Standalone renderer that connects to the JSON-RPC server and draws the world state.
+
+```bash
+cd packages/world-viewer
+cargo run -- --url http://127.0.0.1:3001/jsonrpc
+```
+
 ### Run via Tauri CLI Plugin
 
 ```bash

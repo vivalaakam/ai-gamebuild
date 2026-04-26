@@ -1,4 +1,6 @@
+use crate::input::RawInput;
 use crate::model::{ScriptUnit, StructUnit};
+use crate::renderer::FrameView;
 use crate::runtime::Runtime;
 use crate::scripting::validate_source;
 use axum::{extract::State, routing::post, Json, Router};
@@ -177,6 +179,7 @@ impl JsonRpcHandler {
             "get_struct"    => self.direct_with(req, tool_get_struct),
             "update_struct" => self.direct_mut(req, tool_update_struct),
             "build_code"    => self.direct(req, tool_build_code),
+            "run_frame"     => self.direct_mut(req, tool_run_frame),
 
             _ => JsonRpcResponse::error(req.id, -32601, format!("Method not found: {}", req.method)),
         }
@@ -281,6 +284,17 @@ impl JsonRpcHandler {
                     description: "Validate and build the entire project code".into(),
                     input_schema: Some(json!({ "type": "object", "properties": {} })),
                 },
+                McpToolDescription {
+                    name: "run_frame".into(),
+                    description: "Run one game frame and return render data".into(),
+                    input_schema: Some(json!({
+                        "type": "object",
+                        "properties": {
+                            "pressed_keys": { "type": "array", "items": { "type": "string" } },
+                            "delta": { "type": "number" }
+                        }
+                    })),
+                },
             ],
         })
     }
@@ -308,6 +322,7 @@ impl JsonRpcHandler {
             "get_struct" => self.tool_call_with(req.id, args, tool_get_struct),
             "update_struct" => self.tool_call_mut_with(req.id, args, tool_update_struct),
             "build_code" => self.tool_call(req.id, args, tool_build_code),
+            "run_frame" => self.tool_call_mut_with(req.id, args, tool_run_frame),
             other => JsonRpcResponse::error(req.id, -32602, format!("Unknown tool: {}", other)),
         }
     }
@@ -481,6 +496,22 @@ fn tool_build_code(runtime: &Runtime) -> Result<BuildResult, String> {
             error: Some(error),
         }),
     }
+}
+
+fn tool_run_frame(runtime: &mut Runtime, args: Value) -> Result<FrameView, String> {
+    let pressed_keys = args
+        .get("pressed_keys")
+        .or_else(|| args.get("pressedKeys"))
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|entry| entry.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let delta = args.get("delta").and_then(|value| value.as_f64()).unwrap_or(0.016);
+    Ok(runtime.frame(RawInput { pressed_keys }, delta))
 }
 
 // ─── Axum state & handler ───────────────────────────────────────
