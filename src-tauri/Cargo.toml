@@ -27,3 +27,4 @@ axum = "0.8"
 tokio = { version = "1", features = ["net"] }
 tower-http = { version = "0.6", features = ["cors"] }
 tauri-plugin-axum = "0.9.0"
+thiserror = "2.0.18"

@@ -58,6 +58,7 @@ dependencies = [
  "tauri-plugin-cli",
  "tauri-plugin-opener",
  "tauri-plugin-sql",
+ "thiserror 2.0.18",
  "tokio",
  "tower-http",
  "uuid",
