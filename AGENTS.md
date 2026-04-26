@@ -357,3 +357,72 @@ This project exposes an MCP (Model Context Protocol) server for AI coding agents
 | `get_struct` | Get a single struct by `id` or `name` |
 | `update_struct` | Update a struct source by `id` |
 | `build_code` | Validate and build the entire project code |
+
+---
+
+## LLM Wiki System (docs/)
+
+This repo uses the LLM Wiki pattern to maintain living documentation.
+
+### Folder structure
+
+```
+docs/raw/   -- source documents (immutable, never edit)
+docs/wiki/  -- markdown wiki pages maintained by the agent
+docs/wiki/index.md -- table of contents
+docs/wiki/log.md   -- append-only operations log
+```
+
+### Page format (required)
+
+Every page in `docs/wiki/` must follow:
+
+```markdown
+# Page Title
+
+**Summary**: One to two sentences describing this page.
+
+**Sources**: List of raw/code files this page draws from.
+
+**Last updated**: YYYY-MM-DD
+
+---
+
+Main content, use headings and short paragraphs.
+
+## Related pages
+- [[related-page]]
+```
+
+### Ingest workflow
+
+When the user adds a new source to `docs/raw/` and asks to ingest it:
+
+1. Read the full source file.
+2. Discuss key takeaways with the user before writing anything.
+3. Create a summary page in `docs/wiki/` named after the source.
+4. Create/update related concept pages with `[[wiki-links]]`.
+5. Update `docs/wiki/index.md` with new pages and one-line descriptions.
+6. Append an entry to `docs/wiki/log.md` with date + what changed.
+
+### Query workflow
+
+1. Read `docs/wiki/index.md` first to find relevant pages.
+2. Read relevant pages and synthesize an answer with citations.
+3. If the answer is valuable, offer to save it as a new wiki page.
+
+### Lint workflow
+
+When asked to lint/audit the wiki:
+
+- Check for contradictions between pages.
+- Find orphan pages (no inbound links).
+- Identify concepts mentioned without their own page.
+- Flag claims that may be outdated.
+- Ensure pages follow the page format above.
+
+### Rules
+
+- Never modify anything in `docs/raw/`.
+- Always update `docs/wiki/index.md` and `docs/wiki/log.md` after changes.
+- Keep page names lowercase with hyphens (e.g. `runtime-loop.md`).
