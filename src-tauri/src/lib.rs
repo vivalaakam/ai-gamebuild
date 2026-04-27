@@ -1,17 +1,10 @@
-mod events;
-mod input;
 pub mod jsonrpc;
 pub mod mcp;
-pub mod model;
-mod renderer;
 mod rng;
 mod runtime;
-pub mod scripting;
-pub mod storage;
+mod storage;
 
-use input::RawInput;
-use model::Project;
-use renderer::FrameView;
+use ai_rpg_engine::{FrameView, Project, RawInput};
 use runtime::{ProjectInfo, Runtime, SaveResult, ValidationResult};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -24,11 +17,7 @@ struct RuntimeHandle {
 
 #[tauri::command]
 fn load_project(state: tauri::State<'_, RuntimeHandle>) -> Project {
-    state
-        .runtime
-        .lock()
-        .expect("runtime state poisoned")
-        .project()
+    state.runtime.lock().expect("runtime state poisoned").project()
 }
 
 #[tauri::command]
@@ -68,20 +57,12 @@ fn validate_script(state: tauri::State<'_, RuntimeHandle>, source: String) -> Va
 
 #[tauri::command]
 fn create_script(state: tauri::State<'_, RuntimeHandle>) -> Result<Project, String> {
-    state
-        .runtime
-        .lock()
-        .expect("runtime state poisoned")
-        .create_script()
+    state.runtime.lock().expect("runtime state poisoned").create_script()
 }
 
 #[tauri::command]
 fn create_struct(state: tauri::State<'_, RuntimeHandle>) -> Project {
-    state
-        .runtime
-        .lock()
-        .expect("runtime state poisoned")
-        .create_struct()
+    state.runtime.lock().expect("runtime state poisoned").create_struct()
 }
 
 #[tauri::command]
@@ -112,11 +93,7 @@ fn update_input_action(
 
 #[tauri::command]
 fn reset_input_actions(state: tauri::State<'_, RuntimeHandle>) -> Project {
-    state
-        .runtime
-        .lock()
-        .expect("runtime state poisoned")
-        .reset_input_actions()
+    state.runtime.lock().expect("runtime state poisoned").reset_input_actions()
 }
 
 #[tauri::command]
@@ -125,11 +102,7 @@ fn emit_event(
     name: String,
     payload: Value,
 ) -> Result<(), String> {
-    state
-        .runtime
-        .lock()
-        .expect("runtime state poisoned")
-        .emit(name, payload);
+    state.runtime.lock().expect("runtime state poisoned").emit(name, payload);
     Ok(())
 }
 
@@ -140,11 +113,7 @@ fn save_project(state: tauri::State<'_, RuntimeHandle>) -> Result<SaveResult, St
 
 #[tauri::command]
 fn list_projects(state: tauri::State<'_, RuntimeHandle>) -> Result<Vec<ProjectInfo>, String> {
-    state
-        .runtime
-        .lock()
-        .expect("runtime state poisoned")
-        .list_projects()
+    state.runtime.lock().expect("runtime state poisoned").list_projects()
 }
 
 #[tauri::command]
@@ -164,11 +133,7 @@ fn create_project_cmd(
     state: tauri::State<'_, RuntimeHandle>,
     name: String,
 ) -> Result<Project, String> {
-    state
-        .runtime
-        .lock()
-        .expect("runtime state poisoned")
-        .create_project(name)
+    state.runtime.lock().expect("runtime state poisoned").create_project(name)
 }
 
 #[tauri::command]
@@ -176,11 +141,7 @@ fn delete_project(
     state: tauri::State<'_, RuntimeHandle>,
     project_id: String,
 ) -> Result<(), String> {
-    state
-        .runtime
-        .lock()
-        .expect("runtime state poisoned")
-        .delete_project(project_id)
+    state.runtime.lock().expect("runtime state poisoned").delete_project(project_id)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -193,7 +154,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_cli::init())
         .setup(move |app| {
-            // Check for MCP subcommand before initializing GUI
             let matches = app.cli().matches()?;
             if let Some(subcommand) = matches.subcommand {
                 if subcommand.name == "mcp" {
@@ -233,15 +193,9 @@ pub fn run() {
                 Runtime::open(app_dir.join("projects.sqlite"), default_project_id.clone())
                     .map_err(|err| Box::<dyn std::error::Error>::from(err))?;
 
-            // Share the same runtime between GUI and JSON-RPC
             let runtime = Arc::new(Mutex::new(runtime));
+            app.manage(RuntimeHandle { runtime: runtime.clone() });
 
-            app.manage(RuntimeHandle {
-                runtime: runtime.clone(),
-            });
-
-            // Start JSON-RPC server via axum on localhost:3001
-            // Uses the same application runtime state as the GUI
             tauri::async_runtime::spawn(async move {
                 let handler = jsonrpc::JsonRpcHandler::new(runtime);
                 let handler = Arc::new(Mutex::new(handler));

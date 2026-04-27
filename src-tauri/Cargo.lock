@@ -43,11 +43,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai-rpg-engine"
+version = "0.1.0"
+dependencies = [
+ "rhai",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "ai-rpg-v3"
 version = "0.1.0"
 dependencies = [
+ "ai-rpg-engine",
  "axum",
- "rhai",
  "rusqlite",
  "serde",
  "serde_json",

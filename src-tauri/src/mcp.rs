@@ -1,5 +1,4 @@
-use crate::model::Project;
-use crate::scripting::validate_source;
+use ai_rpg_engine::{Project, validate_source};
 use crate::storage::ProjectStore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

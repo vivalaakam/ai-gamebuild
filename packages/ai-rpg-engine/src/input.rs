@@ -55,16 +55,10 @@ impl InputState {
 
         let mut events = Vec::new();
         for action in self.pressed.difference(&self.previous) {
-            events.push(InputEvent {
-                action: action.clone(),
-                pressed: true,
-            });
+            events.push(InputEvent { action: action.clone(), pressed: true });
         }
         for action in self.previous.difference(&self.pressed) {
-            events.push(InputEvent {
-                action: action.clone(),
-                pressed: false,
-            });
+            events.push(InputEvent { action: action.clone(), pressed: false });
         }
         events
     }

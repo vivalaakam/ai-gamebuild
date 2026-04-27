@@ -71,10 +71,7 @@ fn default_runtime_state(world: &World) -> Value {
         .map(|entity| {
             (
                 entity.id.to_string(),
-                json!({
-                    "x": entity.transform.x,
-                    "y": entity.transform.y,
-                }),
+                json!({ "x": entity.transform.x, "y": entity.transform.y }),
             )
         })
         .collect::<serde_json::Map<String, Value>>();
@@ -110,10 +107,7 @@ fn ensure_runtime_state(runtime_state: &mut Value, world: &World) {
     if let Some(map) = positions.as_object_mut() {
         for entity in world.entities.values() {
             map.entry(entity.id.to_string()).or_insert_with(|| {
-                json!({
-                    "x": entity.transform.x,
-                    "y": entity.transform.y,
-                })
+                json!({ "x": entity.transform.x, "y": entity.transform.y })
             });
         }
     }
@@ -201,8 +195,7 @@ impl ScriptUnit {
     }
 
     pub fn demo_scripts() -> Vec<Self> {
-        let mut scripts = Vec::new();
-        scripts.extend([
+        vec![
             Self::new(
                 "init",
                 "init.rhai",
@@ -258,8 +251,7 @@ impl ScriptUnit {
 }"#,
                 ["update"],
             ),
-        ]);
-        scripts
+        ]
     }
 
     pub fn builtin_libraries() -> Vec<Self> {
@@ -450,11 +442,7 @@ impl Tilemap {
                 tiles.push(tile);
             }
         }
-        Self {
-            width,
-            height,
-            tiles,
-        }
+        Self { width, height, tiles }
     }
 
     pub fn get(&self, x: i64, y: i64) -> Option<TileId> {

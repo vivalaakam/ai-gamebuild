@@ -13,6 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+ai-rpg-engine = { path = "../packages/ai-rpg-engine" }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-cli = "2"
@@ -21,7 +22,6 @@ serde_json = "1"
 sha3 = "0.11.0"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 uuid = { version = "1", features = ["v4"] }
-rhai = { version = "1.21", features = ["serde"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 axum = "0.8"
 tokio = { version = "1", features = ["net"] }

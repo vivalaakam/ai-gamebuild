@@ -28,11 +28,7 @@ impl ScriptHost {
     }
 
     pub fn take_events(&self) -> Vec<Event> {
-        self.outbox
-            .lock()
-            .expect("script outbox poisoned")
-            .drain(..)
-            .collect()
+        self.outbox.lock().expect("script outbox poisoned").drain(..).collect()
     }
 
     pub fn take_draw_commands(&self) -> Vec<DrawCommand> {
@@ -44,11 +40,7 @@ impl ScriptHost {
     }
 
     pub fn take_logs(&self) -> Vec<String> {
-        self.logs
-            .lock()
-            .expect("script log queue poisoned")
-            .drain(..)
-            .collect()
+        self.logs.lock().expect("script log queue poisoned").drain(..).collect()
     }
 }
 
@@ -102,11 +94,7 @@ impl ScriptRuntime {
         ScriptDispatchResult {
             emitted_events: host.take_events(),
             draw_commands: host.take_draw_commands(),
-            logs: host
-                .take_logs()
-                .into_iter()
-                .chain(errors.into_iter())
-                .collect(),
+            logs: host.take_logs().into_iter().chain(errors).collect(),
         }
     }
 }
@@ -198,17 +186,9 @@ fn build_engine(host: ScriptHost) -> Engine {
                 id,
                 Entity {
                     id,
-                    transform: Transform {
-                        x: x as i32,
-                        y: y as i32,
-                    },
-                    render: RenderComponent {
-                        tile_id: tile_id.max(0) as u32,
-                    },
-                    flags: EntityFlags {
-                        visible: true,
-                        blocking,
-                    },
+                    transform: Transform { x: x as i32, y: y as i32 },
+                    render: RenderComponent { tile_id: tile_id.max(0) as u32 },
+                    flags: EntityFlags { visible: true, blocking },
                     script: None,
                     state: json!({ "kind": kind }),
                 },
@@ -229,20 +209,14 @@ fn build_engine(host: ScriptHost) -> Engine {
     });
 
     let h = host.clone();
-    engine.register_fn(
-        "entity_set_pos_raw",
-        move |id: i64, x: i64, y: i64| -> bool {
-            let mut project = h.project.lock().expect("project state poisoned");
-            let Some(entity) = project.world.entities.get_mut(&(id.max(0) as u64)) else {
-                return false;
-            };
-            entity.transform = Transform {
-                x: x as i32,
-                y: y as i32,
-            };
-            true
-        },
-    );
+    engine.register_fn("entity_set_pos_raw", move |id: i64, x: i64, y: i64| -> bool {
+        let mut project = h.project.lock().expect("project state poisoned");
+        let Some(entity) = project.world.entities.get_mut(&(id.max(0) as u64)) else {
+            return false;
+        };
+        entity.transform = Transform { x: x as i32, y: y as i32 };
+        true
+    });
 
     let h = host.clone();
     engine.register_fn("entity_next_id", move |current_id: i64| -> i64 {
@@ -315,28 +289,19 @@ fn build_engine(host: ScriptHost) -> Engine {
 
     let h = host.clone();
     engine.register_fn("emit", move |name: String, payload: Dynamic| {
-        h.outbox
-            .lock()
-            .expect("script outbox poisoned")
-            .push(Event {
-                name,
-                payload: dynamic_to_json(&payload),
-            });
+        h.outbox.lock().expect("script outbox poisoned").push(Event {
+            name,
+            payload: dynamic_to_json(&payload),
+        });
     });
 
     let h = host.clone();
-    engine.register_fn(
-        "is_pressed",
-        move |payload: Dynamic, action: String| -> bool {
-            if let Some(pressed) = payload_action_pressed(&payload, &action) {
-                return pressed;
-            }
-            h.input
-                .lock()
-                .expect("input state poisoned")
-                .is_pressed(&action)
-        },
-    );
+    engine.register_fn("is_pressed", move |payload: Dynamic, action: String| -> bool {
+        if let Some(pressed) = payload_action_pressed(&payload, &action) {
+            return pressed;
+        }
+        h.input.lock().expect("input state poisoned").is_pressed(&action)
+    });
 
     let h = host.clone();
     engine.register_fn(
@@ -345,19 +310,13 @@ fn build_engine(host: ScriptHost) -> Engine {
             if let Some(pressed) = payload_action_pressed(&payload, &action) {
                 return pressed;
             }
-            h.input
-                .lock()
-                .expect("input state poisoned")
-                .is_just_pressed(&action)
+            h.input.lock().expect("input state poisoned").is_just_pressed(&action)
         },
     );
 
     let h = host.clone();
     engine.register_fn("log", move |message: String| {
-        h.logs
-            .lock()
-            .expect("script log queue poisoned")
-            .push(message);
+        h.logs.lock().expect("script log queue poisoned").push(message);
     });
 
     let h = host.clone();
@@ -372,10 +331,7 @@ fn build_engine(host: ScriptHost) -> Engine {
         } else {
             format!("{message} {suffix}")
         };
-        h.logs
-            .lock()
-            .expect("script log queue poisoned")
-            .push(output);
+        h.logs.lock().expect("script log queue poisoned").push(output);
     });
 
     engine
@@ -384,11 +340,11 @@ fn build_engine(host: ScriptHost) -> Engine {
 fn source_with_dependencies(
     script_id: &str,
     project: &Project,
-    scripts: &BTreeMap<String, crate::model::ScriptUnit>,
+    scripts: &BTreeMap<String, ScriptUnit>,
 ) -> Option<String> {
     fn visit(
         id: &str,
-        scripts: &BTreeMap<String, crate::model::ScriptUnit>,
+        scripts: &BTreeMap<String, ScriptUnit>,
         seen: &mut BTreeSet<String>,
         output: &mut String,
     ) -> Option<()> {
@@ -406,11 +362,7 @@ fn source_with_dependencies(
 
     let mut seen = BTreeSet::new();
     let mut output = shared_source(project);
-    for script in project
-        .scripts
-        .iter()
-        .filter(|script| script.bindings.is_empty())
-    {
+    for script in project.scripts.iter().filter(|s| s.bindings.is_empty()) {
         visit(&script.id, scripts, &mut seen, &mut output)?;
     }
     visit(script_id, scripts, &mut seen, &mut output)?;
@@ -435,16 +387,13 @@ fn entity_to_map(entity: &Entity) -> Map {
     map.insert("id".into(), Dynamic::from(entity.id as i64));
     map.insert("x".into(), Dynamic::from(entity.transform.x as i64));
     map.insert("y".into(), Dynamic::from(entity.transform.y as i64));
-    map.insert(
-        "tile_id".into(),
-        Dynamic::from(entity.render.tile_id as i64),
-    );
+    map.insert("tile_id".into(), Dynamic::from(entity.render.tile_id as i64));
     map.insert("visible".into(), Dynamic::from(entity.flags.visible));
     map.insert("blocking".into(), Dynamic::from(entity.flags.blocking));
     map
 }
 
-fn json_to_dynamic(value: &Value) -> Dynamic {
+pub fn json_to_dynamic(value: &Value) -> Dynamic {
     match value {
         Value::Null => Dynamic::UNIT,
         Value::Bool(value) => Dynamic::from(*value),
@@ -471,7 +420,7 @@ fn payload_action_pressed(payload: &Dynamic, action: &str) -> Option<bool> {
     object.get("pressed").and_then(Value::as_bool)
 }
 
-fn dynamic_to_json(value: &Dynamic) -> Value {
+pub fn dynamic_to_json(value: &Dynamic) -> Value {
     if value.is_unit() {
         return Value::Null;
     }

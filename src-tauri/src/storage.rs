@@ -1,4 +1,4 @@
-use crate::model::{
+use ai_rpg_engine::{
     Entity, EntityId, InputAction, Project, ScriptUnit, StructUnit, Tilemap, Tileset,
 };
 use rusqlite::{params, Connection};
