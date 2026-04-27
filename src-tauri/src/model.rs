@@ -51,12 +51,12 @@ impl Project {
         }
         ensure_runtime_state(&mut self.runtime_state, &self.world);
         sync_world_from_runtime_state(&mut self.world, &self.runtime_state);
-
-        for builtin in ScriptUnit::builtin_libraries() {
-            if !self.scripts.iter().any(|script| script.id == builtin.id) {
-                self.scripts.insert(0, builtin);
-            }
-        }
+        let builtin_ids: BTreeSet<String> = ScriptUnit::builtin_libraries()
+            .into_iter()
+            .map(|unit| unit.id)
+            .collect();
+        self.scripts
+            .retain(|script| !(script.bindings.is_empty() && builtin_ids.contains(&script.id)));
     }
 }
 
@@ -201,7 +201,7 @@ impl ScriptUnit {
     }
 
     pub fn demo_scripts() -> Vec<Self> {
-        let mut scripts = Self::builtin_libraries();
+        let mut scripts = Vec::new();
         scripts.extend([
             Self::new(
                 "init",
@@ -239,12 +239,12 @@ impl ScriptUnit {
         next_active();
     }
 
-    if is_just_pressed("paint") {
+    if is_just_pressed(payload, "paint") {
         set_tile(4, 4, 5);
         emit("painted", #{ x: 4, y: 4 });
     }
 
-    if is_just_pressed("spawn") {
+    if is_just_pressed(payload, "spawn") {
         let id = spawn_entity("slime", 7, 7);
         log("spawned entity");
     }

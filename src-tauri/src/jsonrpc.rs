@@ -161,41 +161,48 @@ pub struct JsonRpcHandler {
 
 impl JsonRpcHandler {
     pub fn new(runtime: Arc<Mutex<Runtime>>) -> Self {
-        Self { runtime, initialized: false }
+        Self {
+            runtime,
+            initialized: false,
+        }
     }
 
     pub fn handle_request(&mut self, req: JsonRpcRequest) -> JsonRpcResponse {
         match req.method.as_str() {
-            "initialize"   => self.handle_initialize(req),
-            "initialized"  => JsonRpcResponse::success(req.id, json!({})),
-            "tools/list"   => self.handle_tools_list(req),
-            "tools/call"   => self.handle_tools_call(req),
+            "initialize" => self.handle_initialize(req),
+            "initialized" => JsonRpcResponse::success(req.id, json!({})),
+            "tools/list" => self.handle_tools_list(req),
+            "tools/call" => self.handle_tools_call(req),
 
-            "get_project"   => self.direct(req, tool_get_project),
-            "list_scripts"  => self.direct(req, tool_list_scripts),
-            "get_script"    => self.direct_with(req, tool_get_script),
+            "get_project" => self.direct(req, tool_get_project),
+            "list_scripts" => self.direct(req, tool_list_scripts),
+            "get_script" => self.direct_with(req, tool_get_script),
             "update_script" => self.direct_mut(req, tool_update_script),
-            "list_structs"  => self.direct(req, tool_list_structs),
-            "get_struct"    => self.direct_with(req, tool_get_struct),
+            "list_structs" => self.direct(req, tool_list_structs),
+            "get_struct" => self.direct_with(req, tool_get_struct),
             "update_struct" => self.direct_mut(req, tool_update_struct),
-            "build_code"    => self.direct(req, tool_build_code),
-            "run_frame"     => self.direct_mut(req, tool_run_frame),
+            "build_code" => self.direct(req, tool_build_code),
+            "run_frame" => self.direct_mut(req, tool_run_frame),
 
-            _ => JsonRpcResponse::error(req.id, -32601, format!("Method not found: {}", req.method)),
+            _ => {
+                JsonRpcResponse::error(req.id, -32601, format!("Method not found: {}", req.method))
+            }
         }
     }
 
     // ─── Runtime access ─────────────────────────────────────────
 
     fn with_runtime<F, T>(&self, f: F) -> T
-    where F: FnOnce(&Runtime) -> T,
+    where
+        F: FnOnce(&Runtime) -> T,
     {
         let rt = self.runtime.lock().expect("runtime poisoned");
         f(&rt)
     }
 
     fn with_runtime_mut<F, T>(&self, f: F) -> T
-    where F: FnOnce(&mut Runtime) -> T,
+    where
+        F: FnOnce(&mut Runtime) -> T,
     {
         let mut rt = self.runtime.lock().expect("runtime poisoned");
         f(&mut rt)
@@ -205,98 +212,105 @@ impl JsonRpcHandler {
 
     fn handle_initialize(&mut self, req: JsonRpcRequest) -> JsonRpcResponse {
         self.initialized = true;
-        JsonRpcResponse::success(req.id, InitializeResult {
-            protocol_version: "2024-11-05".into(),
-            capabilities: json!({ "tools": {} }),
-            server_info: ServerInfo {
-                name: "ai-rpg-jsonrpc".into(),
-                version: "0.1.0".into(),
+        JsonRpcResponse::success(
+            req.id,
+            InitializeResult {
+                protocol_version: "2024-11-05".into(),
+                capabilities: json!({ "tools": {} }),
+                server_info: ServerInfo {
+                    name: "ai-rpg-jsonrpc".into(),
+                    version: "0.1.0".into(),
+                },
             },
-        })
+        )
     }
 
     fn handle_tools_list(&self, _req: JsonRpcRequest) -> JsonRpcResponse {
-        JsonRpcResponse::success(_req.id, McpToolsResponse {
-            tools: vec![
-                McpToolDescription {
-                    name: "get_project".into(),
-                    description: "Get current project info including scripts and structs list".into(),
-                    input_schema: Some(json!({ "type": "object", "properties": {} })),
-                },
-                McpToolDescription {
-                    name: "list_scripts".into(),
-                    description: "List all scripts with full source".into(),
-                    input_schema: Some(json!({ "type": "object", "properties": {} })),
-                },
-                McpToolDescription {
-                    name: "get_script".into(),
-                    description: "Get a single script by id or name".into(),
-                    input_schema: Some(json!({
-                        "type": "object",
-                        "properties": {
-                            "id": { "type": "string", "description": "Script id" },
-                            "name": { "type": "string", "description": "Script name" }
-                        }
-                    })),
-                },
-                McpToolDescription {
-                    name: "update_script".into(),
-                    description: "Update a script source by id".into(),
-                    input_schema: Some(json!({
-                        "type": "object",
-                        "properties": {
-                            "id": { "type": "string" },
-                            "source": { "type": "string" }
-                        },
-                        "required": ["id", "source"]
-                    })),
-                },
-                McpToolDescription {
-                    name: "list_structs".into(),
-                    description: "List all structs with full source".into(),
-                    input_schema: Some(json!({ "type": "object", "properties": {} })),
-                },
-                McpToolDescription {
-                    name: "get_struct".into(),
-                    description: "Get a single struct by id or name".into(),
-                    input_schema: Some(json!({
-                        "type": "object",
-                        "properties": {
-                            "id": { "type": "string", "description": "Struct id" },
-                            "name": { "type": "string", "description": "Struct name" }
-                        }
-                    })),
-                },
-                McpToolDescription {
-                    name: "update_struct".into(),
-                    description: "Update a struct source by id".into(),
-                    input_schema: Some(json!({
-                        "type": "object",
-                        "properties": {
-                            "id": { "type": "string" },
-                            "source": { "type": "string" }
-                        },
-                        "required": ["id", "source"]
-                    })),
-                },
-                McpToolDescription {
-                    name: "build_code".into(),
-                    description: "Validate and build the entire project code".into(),
-                    input_schema: Some(json!({ "type": "object", "properties": {} })),
-                },
-                McpToolDescription {
-                    name: "run_frame".into(),
-                    description: "Run one game frame and return render data".into(),
-                    input_schema: Some(json!({
-                        "type": "object",
-                        "properties": {
-                            "pressed_keys": { "type": "array", "items": { "type": "string" } },
-                            "delta": { "type": "number" }
-                        }
-                    })),
-                },
-            ],
-        })
+        JsonRpcResponse::success(
+            _req.id,
+            McpToolsResponse {
+                tools: vec![
+                    McpToolDescription {
+                        name: "get_project".into(),
+                        description: "Get current project info including scripts and structs list"
+                            .into(),
+                        input_schema: Some(json!({ "type": "object", "properties": {} })),
+                    },
+                    McpToolDescription {
+                        name: "list_scripts".into(),
+                        description: "List all scripts with full source".into(),
+                        input_schema: Some(json!({ "type": "object", "properties": {} })),
+                    },
+                    McpToolDescription {
+                        name: "get_script".into(),
+                        description: "Get a single script by id or name".into(),
+                        input_schema: Some(json!({
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string", "description": "Script id" },
+                                "name": { "type": "string", "description": "Script name" }
+                            }
+                        })),
+                    },
+                    McpToolDescription {
+                        name: "update_script".into(),
+                        description: "Update a script source by id".into(),
+                        input_schema: Some(json!({
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "source": { "type": "string" }
+                            },
+                            "required": ["id", "source"]
+                        })),
+                    },
+                    McpToolDescription {
+                        name: "list_structs".into(),
+                        description: "List all structs with full source".into(),
+                        input_schema: Some(json!({ "type": "object", "properties": {} })),
+                    },
+                    McpToolDescription {
+                        name: "get_struct".into(),
+                        description: "Get a single struct by id or name".into(),
+                        input_schema: Some(json!({
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string", "description": "Struct id" },
+                                "name": { "type": "string", "description": "Struct name" }
+                            }
+                        })),
+                    },
+                    McpToolDescription {
+                        name: "update_struct".into(),
+                        description: "Update a struct source by id".into(),
+                        input_schema: Some(json!({
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "source": { "type": "string" }
+                            },
+                            "required": ["id", "source"]
+                        })),
+                    },
+                    McpToolDescription {
+                        name: "build_code".into(),
+                        description: "Validate and build the entire project code".into(),
+                        input_schema: Some(json!({ "type": "object", "properties": {} })),
+                    },
+                    McpToolDescription {
+                        name: "run_frame".into(),
+                        description: "Run one game frame and return render data".into(),
+                        input_schema: Some(json!({
+                            "type": "object",
+                            "properties": {
+                                "pressed_keys": { "type": "array", "items": { "type": "string" } },
+                                "delta": { "type": "number" }
+                            }
+                        })),
+                    },
+                ],
+            },
+        )
     }
 
     fn handle_tools_call(&mut self, req: JsonRpcRequest) -> JsonRpcResponse {
@@ -329,14 +343,22 @@ impl JsonRpcHandler {
 
     // ─── Direct dispatch ────────────────────────────────────────
 
-    fn direct<T: Serialize>(&self, req: JsonRpcRequest, f: impl FnOnce(&Runtime) -> Result<T, String>) -> JsonRpcResponse {
+    fn direct<T: Serialize>(
+        &self,
+        req: JsonRpcRequest,
+        f: impl FnOnce(&Runtime) -> Result<T, String>,
+    ) -> JsonRpcResponse {
         match self.with_runtime(f) {
             Ok(v) => JsonRpcResponse::success(req.id, v),
             Err(m) => JsonRpcResponse::error(req.id, -32603, m),
         }
     }
 
-    fn direct_with<T: Serialize>(&self, req: JsonRpcRequest, f: impl FnOnce(&Runtime, Value) -> Result<T, String>) -> JsonRpcResponse {
+    fn direct_with<T: Serialize>(
+        &self,
+        req: JsonRpcRequest,
+        f: impl FnOnce(&Runtime, Value) -> Result<T, String>,
+    ) -> JsonRpcResponse {
         let args = req.params.clone().unwrap_or(json!({}));
         match self.with_runtime(|rt| f(rt, args)) {
             Ok(v) => JsonRpcResponse::success(req.id, v),
@@ -344,7 +366,11 @@ impl JsonRpcHandler {
         }
     }
 
-    fn direct_mut<T: Serialize>(&self, req: JsonRpcRequest, f: impl FnOnce(&mut Runtime, Value) -> Result<T, String>) -> JsonRpcResponse {
+    fn direct_mut<T: Serialize>(
+        &self,
+        req: JsonRpcRequest,
+        f: impl FnOnce(&mut Runtime, Value) -> Result<T, String>,
+    ) -> JsonRpcResponse {
         let args = req.params.clone().unwrap_or(json!({}));
         match self.with_runtime_mut(|rt| f(rt, args)) {
             Ok(v) => JsonRpcResponse::success(req.id, v),
@@ -354,60 +380,102 @@ impl JsonRpcHandler {
 
     // ─── MCP tools/call dispatch (wraps result in McpCallResponse) ───
 
-    fn tool_call<T: Serialize>(&self, id: Option<Value>, _args: Value, f: impl FnOnce(&Runtime) -> Result<T, String>) -> JsonRpcResponse {
+    fn tool_call<T: Serialize>(
+        &self,
+        id: Option<Value>,
+        _args: Value,
+        f: impl FnOnce(&Runtime) -> Result<T, String>,
+    ) -> JsonRpcResponse {
         let result = self.with_runtime(|rt| {
             f(rt).map(|v| {
                 let text = serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".into());
                 McpCallResponse {
-                    content: vec![McpTextContent { content_type: "text".into(), text }],
+                    content: vec![McpTextContent {
+                        content_type: "text".into(),
+                        text,
+                    }],
                     is_error: None,
                 }
             })
         });
         match result {
             Ok(resp) => JsonRpcResponse::success(id, resp),
-            Err(msg) => JsonRpcResponse::success(id, McpCallResponse {
-                content: vec![McpTextContent { content_type: "text".into(), text: msg }],
-                is_error: Some(true),
-            }),
+            Err(msg) => JsonRpcResponse::success(
+                id,
+                McpCallResponse {
+                    content: vec![McpTextContent {
+                        content_type: "text".into(),
+                        text: msg,
+                    }],
+                    is_error: Some(true),
+                },
+            ),
         }
     }
 
-    fn tool_call_with<T: Serialize>(&self, id: Option<Value>, args: Value, f: impl FnOnce(&Runtime, Value) -> Result<T, String>) -> JsonRpcResponse {
+    fn tool_call_with<T: Serialize>(
+        &self,
+        id: Option<Value>,
+        args: Value,
+        f: impl FnOnce(&Runtime, Value) -> Result<T, String>,
+    ) -> JsonRpcResponse {
         let result = self.with_runtime(|rt| {
             f(rt, args).map(|v| {
                 let text = serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".into());
                 McpCallResponse {
-                    content: vec![McpTextContent { content_type: "text".into(), text }],
+                    content: vec![McpTextContent {
+                        content_type: "text".into(),
+                        text,
+                    }],
                     is_error: None,
                 }
             })
         });
         match result {
             Ok(resp) => JsonRpcResponse::success(id, resp),
-            Err(msg) => JsonRpcResponse::success(id, McpCallResponse {
-                content: vec![McpTextContent { content_type: "text".into(), text: msg }],
-                is_error: Some(true),
-            }),
+            Err(msg) => JsonRpcResponse::success(
+                id,
+                McpCallResponse {
+                    content: vec![McpTextContent {
+                        content_type: "text".into(),
+                        text: msg,
+                    }],
+                    is_error: Some(true),
+                },
+            ),
         }
     }
 
-    fn tool_call_mut_with<T: Serialize>(&self, id: Option<Value>, args: Value, f: impl FnOnce(&mut Runtime, Value) -> Result<T, String>) -> JsonRpcResponse {
+    fn tool_call_mut_with<T: Serialize>(
+        &self,
+        id: Option<Value>,
+        args: Value,
+        f: impl FnOnce(&mut Runtime, Value) -> Result<T, String>,
+    ) -> JsonRpcResponse {
         let result = self.with_runtime_mut(|rt| {
             f(rt, args).map(|v| {
                 let text = serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".into());
                 McpCallResponse {
-                    content: vec![McpTextContent { content_type: "text".into(), text }],
+                    content: vec![McpTextContent {
+                        content_type: "text".into(),
+                        text,
+                    }],
                     is_error: None,
                 }
             })
         });
         match result {
             Ok(resp) => JsonRpcResponse::success(id, resp),
-            Err(msg) => JsonRpcResponse::success(id, McpCallResponse {
-                content: vec![McpTextContent { content_type: "text".into(), text: msg }],
-                is_error: Some(true),
-            }),
+            Err(msg) => JsonRpcResponse::success(
+                id,
+                McpCallResponse {
+                    content: vec![McpTextContent {
+                        content_type: "text".into(),
+                        text: msg,
+                    }],
+                    is_error: Some(true),
+                },
+            ),
         }
     }
 }
@@ -419,15 +487,32 @@ fn tool_get_project(runtime: &Runtime) -> Result<ProjectOverview, String> {
     Ok(ProjectOverview {
         id: p.id,
         name: p.name,
-        scripts: p.scripts.into_iter().map(|s| ScriptSummary {
-            id: s.id, name: s.name, bindings: s.bindings,
-        }).collect(),
-        structs: p.structs.into_iter().map(|s| StructSummary {
-            id: s.id, name: s.name,
-        }).collect(),
-        input_actions: p.input_actions.into_iter().map(|a| InputActionSummary {
-            id: a.id, label: a.label, key_code: a.key_code,
-        }).collect(),
+        scripts: p
+            .scripts
+            .into_iter()
+            .map(|s| ScriptSummary {
+                id: s.id,
+                name: s.name,
+                bindings: s.bindings,
+            })
+            .collect(),
+        structs: p
+            .structs
+            .into_iter()
+            .map(|s| StructSummary {
+                id: s.id,
+                name: s.name,
+            })
+            .collect(),
+        input_actions: p
+            .input_actions
+            .into_iter()
+            .map(|a| InputActionSummary {
+                id: a.id,
+                label: a.label,
+                key_code: a.key_code,
+            })
+            .collect(),
     })
 }
 
@@ -439,14 +524,24 @@ fn tool_get_script(runtime: &Runtime, args: Value) -> Result<ScriptUnit, String>
     let project = runtime.project();
     let id = args.get("id").and_then(|v| v.as_str());
     let name = args.get("name").and_then(|v| v.as_str());
-    project.scripts.into_iter()
+    project
+        .scripts
+        .into_iter()
         .find(|s| id.map_or(false, |id| s.id == id) || name.map_or(false, |n| s.name == n))
         .ok_or_else(|| "Script not found".into())
 }
 
 fn tool_update_script(runtime: &mut Runtime, args: Value) -> Result<SuccessResponse, String> {
-    let id = args.get("id").and_then(|v| v.as_str()).ok_or("Missing id")?.to_string();
-    let source = args.get("source").and_then(|v| v.as_str()).ok_or("Missing source")?.to_string();
+    let id = args
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing id")?
+        .to_string();
+    let source = args
+        .get("source")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing source")?
+        .to_string();
     runtime.update_script(id, source)?;
     Ok(SuccessResponse { success: true })
 }
@@ -459,14 +554,24 @@ fn tool_get_struct(runtime: &Runtime, args: Value) -> Result<StructUnit, String>
     let project = runtime.project();
     let id = args.get("id").and_then(|v| v.as_str());
     let name = args.get("name").and_then(|v| v.as_str());
-    project.structs.into_iter()
+    project
+        .structs
+        .into_iter()
         .find(|s| id.map_or(false, |id| s.id == id) || name.map_or(false, |n| s.name == n))
         .ok_or_else(|| "Struct not found".into())
 }
 
 fn tool_update_struct(runtime: &mut Runtime, args: Value) -> Result<SuccessResponse, String> {
-    let id = args.get("id").and_then(|v| v.as_str()).ok_or("Missing id")?.to_string();
-    let source = args.get("source").and_then(|v| v.as_str()).ok_or("Missing source")?.to_string();
+    let id = args
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing id")?
+        .to_string();
+    let source = args
+        .get("source")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing source")?
+        .to_string();
     runtime.update_struct(id, source)?;
     Ok(SuccessResponse { success: true })
 }
@@ -510,7 +615,10 @@ fn tool_run_frame(runtime: &mut Runtime, args: Value) -> Result<FrameView, Strin
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let delta = args.get("delta").and_then(|value| value.as_f64()).unwrap_or(0.016);
+    let delta = args
+        .get("delta")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(0.016);
     Ok(runtime.frame(RawInput { pressed_keys }, delta))
 }
 
@@ -527,7 +635,13 @@ pub async fn jsonrpc_handler(
 ) -> Json<JsonRpcResponse> {
     let request: JsonRpcRequest = match serde_json::from_value(body) {
         Ok(req) => req,
-        Err(e) => return Json(JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e))),
+        Err(e) => {
+            return Json(JsonRpcResponse::error(
+                None,
+                -32700,
+                format!("Parse error: {}", e),
+            ))
+        }
     };
 
     let response = {

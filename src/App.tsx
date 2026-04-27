@@ -66,6 +66,8 @@ type ValidationResult = {
   error: string | null;
 };
 
+type SavedHashMap = Record<string, number>;
+
 const palette = ["#101820", "#243c2f", "#f2c14e", "#1b263b", "#3a7d44", "#e76f51", "#2a9d8f", "#e9c46a"];
 
 function App() {
@@ -81,6 +83,7 @@ function App() {
   const [status, setStatus] = useState("loading runtime");
   const [validation, setValidation] = useState<ValidationResult>({ valid: true, error: null });
   const [captureActionId, setCaptureActionId] = useState<string | null>(null);
+  const [savedHashes, setSavedHashes] = useState<SavedHashMap>({});
 
   const selectedUnit =
     selectedFile.kind === "script"
@@ -93,6 +96,7 @@ function App() {
       .then((loaded) => {
         if (cancelled) return;
         setProject(loaded);
+        setSavedHashes(buildSavedHashes(loaded));
         const firstScript = loaded.scripts[0];
         setSelectedFile({ kind: "script", id: firstScript?.id ?? "" });
         setSource(firstScript?.source ?? "");
@@ -128,6 +132,9 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (editorRef.current?.hasTextFocus()) {
+        return;
+      }
       if (captureActionId) {
         event.preventDefault();
         updateInputAction(captureActionId, event.code);
@@ -139,7 +146,12 @@ function App() {
         event.preventDefault();
       }
     };
-    const onKeyUp = (event: KeyboardEvent) => pressedKeys.current.delete(event.code);
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (editorRef.current?.hasTextFocus()) {
+        return;
+      }
+      pressedKeys.current.delete(event.code);
+    };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     return () => {
@@ -245,12 +257,12 @@ function App() {
     }
   }
 
-  async function applyFile() {
+  async function applyFile(): Promise<Project | null> {
     const result = await invoke<ValidationResult>("validate_script", { source });
     setValidation(result);
     if (!result.valid) {
       setStatus("file has syntax errors");
-      return;
+      return null;
     }
 
     const updated =
@@ -259,11 +271,21 @@ function App() {
         : await invoke<Project>("update_struct", { structId: selectedFile.id, source });
     setProject(updated);
     setStatus(`${selectedFile.kind} applied in memory`);
+    return updated;
   }
 
   async function saveProject() {
+    if (!project) return;
+    let snapshotProject: Project | null = project;
+    if (selectedUnit && isUnitDirty(selectedFile.kind, selectedUnit)) {
+      snapshotProject = await applyFile();
+      if (!snapshotProject) return;
+    }
     const result = await invoke<{ snapshot_bytes: number }>("save_project");
     setStatus(`saved snapshot: ${result.snapshot_bytes} bytes`);
+    if (snapshotProject) {
+      setSavedHashes(buildSavedHashes(snapshotProject));
+    }
   }
 
   async function createScript() {
@@ -305,6 +327,42 @@ function App() {
     setStatus("input bindings reset");
   }
 
+  function buildSavedHashes(nextProject: Project): SavedHashMap {
+    const hashes: SavedHashMap = {};
+    for (const script of nextProject.scripts) {
+      hashes[keyFor("script", script.id)] = hashSource(script.source);
+    }
+    for (const unit of nextProject.structs) {
+      hashes[keyFor("struct", unit.id)] = hashSource(unit.source);
+    }
+    return hashes;
+  }
+
+  function keyFor(kind: FileSelection["kind"], id: string) {
+    return `${kind}:${id}`;
+  }
+
+  function hashSource(value: string) {
+    let hash = 5381;
+    for (let i = 0; i < value.length; i += 1) {
+      hash = (hash * 33) ^ value.charCodeAt(i);
+    }
+    return hash >>> 0;
+  }
+
+  function isUnitDirty(kind: FileSelection["kind"], unit: ScriptUnit | StructUnit) {
+    const key = keyFor(kind, unit.id);
+    const base = savedHashes[key];
+    const effectiveSource =
+      selectedFile.kind === kind && selectedFile.id === unit.id ? source : unit.source;
+    if (base === undefined) return true;
+    return base !== hashSource(effectiveSource);
+  }
+
+  const hasDirty =
+    (project?.scripts.some((script) => isUnitDirty("script", script)) ?? false) ||
+    (project?.structs.some((unit) => isUnitDirty("struct", unit)) ?? false);
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -315,7 +373,9 @@ function App() {
           <button onClick={applyFile} disabled={!validation.valid}>
             Apply File
           </button>
-          <button onClick={saveProject}>Save Snapshot</button>
+          <button onClick={saveProject} disabled={!hasDirty}>
+            Save Project
+          </button>
         </div>
       </header>
 
@@ -329,14 +389,19 @@ function App() {
               </button>
             </div>
             {project?.scripts.map((script) => (
+              (() => {
+                const dirty = isUnitDirty("script", script);
+                return (
               <button
                 className={selectedFile.kind === "script" && script.id === selectedFile.id ? "selected" : ""}
                 key={script.id}
                 onClick={() => setSelectedFile({ kind: "script", id: script.id })}
               >
-                <span>{script.name}</span>
+                <span>{script.name}{dirty ? " *" : ""}</span>
                 <small>{script.bindings.length > 0 ? script.bindings.join(", ") : "library"}</small>
               </button>
+                );
+              })()
             ))}
           </section>
 
@@ -348,14 +413,19 @@ function App() {
               </button>
             </div>
             {project?.structs.map((unit) => (
+              (() => {
+                const dirty = isUnitDirty("struct", unit);
+                return (
               <button
                 className={selectedFile.kind === "struct" && unit.id === selectedFile.id ? "selected" : ""}
                 key={unit.id}
                 onClick={() => setSelectedFile({ kind: "struct", id: unit.id })}
               >
-                <span>{unit.name}</span>
+                <span>{unit.name}{dirty ? " *" : ""}</span>
                 <small>rhai factory</small>
               </button>
+                );
+              })()
             ))}
           </section>
 
@@ -415,7 +485,12 @@ function App() {
         </section>
 
         <section className="console">
-          <h2>Console</h2>
+          <div className="panel-heading">
+            <h2>Console</h2>
+            <button className="compact" onClick={() => setLogs([])}>
+              Clear
+            </button>
+          </div>
           <p className="status">{status}</p>
           {logs.map((line, index) => (
             <code key={`${line}-${index}`}>{line}</code>

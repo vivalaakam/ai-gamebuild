@@ -1,6 +1,6 @@
 use crate::events::Event;
 use crate::input::InputState;
-use crate::model::{Entity, EntityFlags, Project, RenderComponent, Transform};
+use crate::model::{Entity, EntityFlags, Project, RenderComponent, ScriptUnit, Transform};
 use crate::renderer::DrawCommand;
 use rhai::{Array, Dynamic, Engine, EvalAltResult, Map, Scope};
 use serde_json::{json, Number, Value};
@@ -325,27 +325,57 @@ fn build_engine(host: ScriptHost) -> Engine {
     });
 
     let h = host.clone();
-    engine.register_fn("is_pressed", move |action: String| -> bool {
-        h.input
-            .lock()
-            .expect("input state poisoned")
-            .is_pressed(&action)
-    });
+    engine.register_fn(
+        "is_pressed",
+        move |payload: Dynamic, action: String| -> bool {
+            if let Some(pressed) = payload_action_pressed(&payload, &action) {
+                return pressed;
+            }
+            h.input
+                .lock()
+                .expect("input state poisoned")
+                .is_pressed(&action)
+        },
+    );
 
     let h = host.clone();
-    engine.register_fn("is_just_pressed", move |action: String| -> bool {
-        h.input
-            .lock()
-            .expect("input state poisoned")
-            .is_just_pressed(&action)
-    });
+    engine.register_fn(
+        "is_just_pressed",
+        move |payload: Dynamic, action: String| -> bool {
+            if let Some(pressed) = payload_action_pressed(&payload, &action) {
+                return pressed;
+            }
+            h.input
+                .lock()
+                .expect("input state poisoned")
+                .is_just_pressed(&action)
+        },
+    );
 
-    let h = host;
+    let h = host.clone();
     engine.register_fn("log", move |message: String| {
         h.logs
             .lock()
             .expect("script log queue poisoned")
             .push(message);
+    });
+
+    let h = host.clone();
+    engine.register_fn("log", move |message: String, payload: Dynamic| {
+        let value = dynamic_to_json(&payload);
+        let suffix = match value {
+            Value::Null => String::new(),
+            _ => serde_json::to_string(&value).unwrap_or_else(|_| "<invalid>".into()),
+        };
+        let output = if suffix.is_empty() {
+            message
+        } else {
+            format!("{message} {suffix}")
+        };
+        h.logs
+            .lock()
+            .expect("script log queue poisoned")
+            .push(output);
     });
 
     engine
@@ -393,6 +423,10 @@ fn shared_source(project: &Project) -> String {
         output.push_str(&unit.source);
         output.push('\n');
     }
+    for builtin in ScriptUnit::builtin_libraries() {
+        output.push_str(&builtin.source);
+        output.push('\n');
+    }
     output
 }
 
@@ -425,6 +459,16 @@ fn json_to_dynamic(value: &Value) -> Dynamic {
             Dynamic::from_map(map)
         }
     }
+}
+
+fn payload_action_pressed(payload: &Dynamic, action: &str) -> Option<bool> {
+    let json = dynamic_to_json(payload);
+    let object = json.as_object()?;
+    let payload_action = object.get("action")?.as_str()?;
+    if payload_action != action {
+        return None;
+    }
+    object.get("pressed").and_then(Value::as_bool)
 }
 
 fn dynamic_to_json(value: &Dynamic) -> Value {
